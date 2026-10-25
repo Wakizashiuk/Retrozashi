@@ -21,7 +21,8 @@ Claude Computer Use (screenshots + mouse/keyboard) for everything else.
 
 **Download the latest version from [Releases](https://github.com/Wakizashiuk/Retrozashi/releases)**
 (`Retrozashi-vX.Y.Z-win64.zip`). Every CI run also builds `Retrozashi-win64.zip` under the run's
-*Artifacts* (kept 14 days). Pushing a `v*` tag publishes a release automatically. Unzip it anywhere and run `Retrozashi\Retrozashi.exe`. On first launch it asks
+*Artifacts* (kept 14 days). A release is published automatically when the version in `pyproject.toml`
+reaches `main`, or when a `v*` tag is created (including from GitHub's *Draft a new release* page). Unzip it anywhere and run `Retrozashi\Retrozashi.exe`. On first launch it asks
 for your Anthropic API key and stores it in **Windows Credential Manager**. The first voice command
 downloads the Whisper model (~250 MB, once).
 
