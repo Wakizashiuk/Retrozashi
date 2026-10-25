@@ -31,3 +31,4 @@ Optional: copy `settings.example.toml` to `%APPDATA%\Retrozashi\settings.toml` a
 pytest
 ```
 The logic tests (scaling, key mapping, INI editing, the agent loop with a fake Claude client) run on any OS.
+Win32 smoke tests (real `SendInput` structs, capture, UIA) run on Windows. CI runs both on `windows-latest` and `ubuntu-latest`.
