@@ -28,7 +28,7 @@ class Runtime:
         self.registry = EmulatorRegistry(settings.emulator_paths)
         self.uia = UiaController(self.registry, self.kill) if uia_available() else None
         self.agent = AgentLoop(settings.agent, self.bus, self.kill, self.executor,
-                               NativeTools(self.registry, self.uia))
+                               NativeTools(self.registry, self.uia, self.screen))
         self._jobs: queue.Queue = queue.Queue()
         self._worker = threading.Thread(target=self._work, name="AgentWorker", daemon=True)
         self.busy = False
@@ -47,8 +47,7 @@ class Runtime:
         self._jobs.put(text)
 
     def set_monitor(self, index: int) -> None:
-        self.screen.monitor_index = index
-        self.screen.last = None
+        self.screen.set_monitor(index)
 
     def shutdown(self) -> None:
         self.kill.trip("Shutting down")

@@ -84,7 +84,8 @@ class MainWindow(QMainWindow):
             self.monitor.setCurrentIndex(self.runtime.screen.monitor_index)
         except Exception:
             self.monitor.addItem("Monitor 1", 1)
-        self.monitor.currentIndexChanged.connect(lambda _: self.runtime.set_monitor(self.monitor.currentData()))
+        self.monitor.currentIndexChanged.connect(self._pick_monitor)
+        self.target = QLabel(f"Target: {self.runtime.screen.describe_target()}")
         self.log = QListWidget()
         self.shot = QLabel("No screenshot yet", alignment=Qt.AlignCenter)
         self.shot.setMinimumHeight(220)
@@ -93,6 +94,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(kill)
         lay.addWidget(QLabel("Agent controls:"))
         lay.addWidget(self.monitor)
+        lay.addWidget(self.target)
         lay.addWidget(QLabel("Action log"))
         lay.addWidget(self.log, 1)
         lay.addWidget(QLabel("What Claude sees"))
@@ -110,6 +112,10 @@ class MainWindow(QMainWindow):
         if text:
             self.input.clear()
             self.runtime.submit(text)
+
+    def _pick_monitor(self, _index: int) -> None:
+        self.runtime.set_monitor(self.monitor.currentData())
+        self.target.setText(f"Target: {self.runtime.screen.describe_target()}")
 
     def _toggle_mic(self) -> None:
         if self.voice:
@@ -139,8 +145,12 @@ class MainWindow(QMainWindow):
             self._append_chat("Retrozashi", ev.message, "#a5d6a7")
         elif ev.kind in (EventKind.ACTION, EventKind.TOOL):
             self._log(("🖱 " if ev.kind == EventKind.ACTION else "⚙ ") + ev.message)
+            self.target.setText(f"Target: {self.runtime.screen.describe_target()}")
         elif ev.kind == EventKind.SCREENSHOT:
-            data = ev.data["content"][0]["source"]["data"]
+            images = [b for b in ev.data["content"] if b["type"] == "image"]
+            if not images:
+                return
+            data = images[-1]["source"]["data"]
             pix = QPixmap()
             pix.loadFromData(base64.b64decode(data))
             self.shot.setPixmap(pix.scaled(self.shot.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))

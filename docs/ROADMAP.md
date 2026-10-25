@@ -23,7 +23,8 @@ Each phase ends with something you can run and use.
 5. Calibrate: does a click at a known coordinate land correctly on each monitor at 100%/150% scaling?
 
 ## Phase 2: Reliability (1–2 weeks)
-- **Window targeting.** Capture just the emulator window (`GetWindowRect` + `SetForegroundWindow`) instead of the whole monitor, for higher detail at lower cost.
+- [x] **Window targeting.** `focus_emulator_window` captures just the emulator window: higher detail, clicks confined, stale-frame guard.
+- **Occluded-window capture.** Use Windows.Graphics.Capture (or `PrintWindow`) so a covered window still screenshots correctly.
 - [x] **UI Automation tier.** `ui_list_controls` / `ui_act` operate Qt dialogs by control name, scoped to emulator processes.
 - **UIA on real builds.** Check which PCSX2/DuckStation/Eden/Dolphin controls expose useful names; add
   `automation_id` hints to adapters for the key dialogs (graphics, controllers).

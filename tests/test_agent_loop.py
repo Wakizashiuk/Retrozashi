@@ -44,8 +44,14 @@ class FakeBackend:
 class FakeScreen:
     """Second monitor at x=1920, 4K, sent to Claude at half size."""
     def __init__(self):
-        self.last = None
         self.monitor_index = 2
+        self.capture()
+
+    def describe_target(self):
+        return "monitor 2"
+
+    def frame_still_valid(self, frame):
+        return True
 
     def capture(self):
         self.last = Frame(b"\x89PNG", 1920, 1080, Rect(1920, 0, 3840, 2160), 0.5)

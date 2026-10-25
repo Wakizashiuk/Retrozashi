@@ -139,6 +139,67 @@ def type_unicode(text: str) -> None:
         _send(*events)
 
 
+WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM) if IS_WINDOWS else None
+DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_CLOAKED = 9, 14
+SW_RESTORE = 9
+VK_MENU = 0x12
+
+
+def _dwm_attr(hwnd: int, attr: int, out) -> bool:
+    return ctypes.WinDLL("dwmapi").DwmGetWindowAttribute(
+        wintypes.HWND(hwnd), attr, ctypes.byref(out), ctypes.sizeof(out)) == 0
+
+
+def list_windows(pids: set[int]) -> list[tuple[int, str]]:
+    """Visible, titled, non-cloaked top-level windows owned by `pids`: [(hwnd, title)], z-order first."""
+    user32 = _user32()
+    found: list[tuple[int, str]] = []
+
+    def visit(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value not in pids:
+            return True
+        cloaked = wintypes.DWORD()
+        if _dwm_attr(hwnd, DWMWA_CLOAKED, cloaked) and cloaked.value:
+            return True  # hidden UWP/virtual-desktop windows report visible but aren't on screen
+        n = user32.GetWindowTextLengthW(hwnd)
+        if n == 0:
+            return True
+        buf = ctypes.create_unicode_buffer(n + 1)
+        user32.GetWindowTextW(hwnd, buf, n + 1)
+        found.append((int(hwnd), buf.value))
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(visit), 0)
+    return found
+
+
+def window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
+    """(left, top, width, height) in physical pixels, without the invisible resize border.
+    None if the window is gone or minimized."""
+    user32 = _user32()
+    if not user32.IsWindow(wintypes.HWND(hwnd)) or user32.IsIconic(wintypes.HWND(hwnd)):
+        return None
+    r = wintypes.RECT()
+    if not _dwm_attr(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, r):
+        user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(r))
+    return r.left, r.top, r.right - r.left, r.bottom - r.top
+
+
+def focus_window(hwnd: int) -> bool:
+    """Restore if minimized and bring to front. Windows only lets the foreground process steal
+    focus, so a synthetic Alt tap first makes SetForegroundWindow succeed from the background."""
+    user32 = _user32()
+    h = wintypes.HWND(hwnd)
+    if user32.IsIconic(h):
+        user32.ShowWindow(h, SW_RESTORE)
+    _send(_key(VK_MENU, up=False), _key(VK_MENU, up=True))
+    return bool(user32.SetForegroundWindow(h))
+
+
 def exclude_from_capture(hwnd: int) -> None:
     """Hide Retrozashi's own window from screenshots (Win10 2004+), so Claude never
     sees, or clicks on, its own control panel."""

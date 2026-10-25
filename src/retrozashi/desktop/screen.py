@@ -1,6 +1,8 @@
-"""Screenshot capture with multi-monitor targeting and coordinate scaling.
+"""Screenshot capture with multi-monitor / single-window targeting and coordinate scaling.
 
-Claude sees one monitor (or one rect), downscaled to fit the API's image limits. Every
+Claude sees one monitor, or just one emulator window, downscaled to fit the API's image
+limits. Window targeting gives sharper detail for the same token cost, hides everything else
+on screen, and (via clamping) keeps every click inside that window. Every
 coordinate Claude returns is in that downscaled image's pixel space, so `Frame.to_screen`
 maps it back to physical virtual-desktop pixels for SendInput/SetCursorPos.
 """
@@ -9,6 +11,7 @@ from __future__ import annotations
 import io
 import math
 from dataclasses import dataclass
+from typing import Callable
 
 # API limits for models that support computer_toolset_20260801.
 API_MAX_LONG_EDGE = 2576
@@ -23,6 +26,27 @@ class Rect:
     top: int
     width: int
     height: int
+
+
+@dataclass(frozen=True)
+class WindowTarget:
+    hwnd: int
+    title: str
+    emulator: str
+
+
+class CaptureTargetLost(Exception):
+    """The targeted window closed or was minimized."""
+
+
+def clip(rect: Rect, bounds: Rect) -> Rect:
+    """Intersect a window rect with the virtual desktop (windows can hang off-screen)."""
+    left, top = max(rect.left, bounds.left), max(rect.top, bounds.top)
+    right = min(rect.left + rect.width, bounds.left + bounds.width)
+    bottom = min(rect.top + rect.height, bounds.top + bounds.height)
+    if right <= left or bottom <= top:
+        raise CaptureTargetLost("Target window is entirely off-screen")
+    return Rect(left, top, right - left, bottom - top)
 
 
 def visual_tokens(w: int, h: int) -> int:
@@ -71,11 +95,48 @@ def _encode(raw_rgb: bytes, size: tuple[int, int], out_size: tuple[int, int]) ->
     return buf.getvalue()
 
 
+def _win32_window_rect(hwnd: int) -> Rect | None:
+    from .win32 import window_rect
+
+    r = window_rect(hwnd)
+    return Rect(*r) if r else None
+
+
 class ScreenCapture:
-    def __init__(self, monitor_index: int = 1, max_long_edge: int = DEFAULT_MAX_LONG_EDGE) -> None:
+    def __init__(self, monitor_index: int = 1, max_long_edge: int = DEFAULT_MAX_LONG_EDGE,
+                 window_rect_fn: Callable[[int], Rect | None] = _win32_window_rect) -> None:
         self.monitor_index = monitor_index
         self.max_long_edge = max_long_edge
+        self.window: WindowTarget | None = None
+        self._window_rect = window_rect_fn
         self.last: Frame | None = None
+
+    def set_monitor(self, index: int) -> None:
+        self.monitor_index = index
+        self.window = None
+        self.last = None  # old coordinates mean nothing now: force a fresh screenshot
+
+    def set_window(self, target: WindowTarget | None) -> None:
+        self.window = target
+        self.last = None
+
+    def describe_target(self) -> str:
+        return f"window '{self.window.title}'" if self.window else f"monitor {self.monitor_index}"
+
+    def _current_window_rect(self) -> Rect:
+        rect = self._window_rect(self.window.hwnd)
+        if rect is None:
+            lost = self.window
+            self.set_window(None)
+            raise CaptureTargetLost(f"Window '{lost.title}' was closed or minimized; "
+                                    f"capture is back on monitor {self.monitor_index}.")
+        return rect
+
+    def frame_still_valid(self, frame: Frame) -> bool:
+        """False if the targeted window moved/resized since `frame` was taken."""
+        if self.window is None:
+            return True
+        return clip(self._current_window_rect(), self.list_monitors()[0]) == frame.source
 
     @staticmethod
     def list_monitors() -> list[Rect]:
@@ -87,6 +148,8 @@ class ScreenCapture:
 
     def target_rect(self) -> Rect:
         monitors = self.list_monitors()
+        if self.window is not None:
+            return clip(self._current_window_rect(), monitors[0])
         if not 0 <= self.monitor_index < len(monitors):
             raise ValueError(f"Monitor {self.monitor_index} not found ({len(monitors) - 1} connected)")
         return monitors[self.monitor_index]

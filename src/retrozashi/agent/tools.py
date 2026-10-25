@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..desktop.screen import ScreenCapture, WindowTarget
 from ..desktop.uia import ACTIONS, UiaController, UiaError
 from ..emulators.base import EmulatorBusy
 from ..emulators.registry import EmulatorRegistry
@@ -40,6 +41,12 @@ NATIVE_TOOLS: list[dict[str, Any]] = [
           "Start an emulator, optionally booting a game. Use '' for game_path to open just the frontend.",
           {"emulator": _EMU, "game_path": {"type": "string"}, "fullscreen": {"type": "boolean"}}),
     _tool("close_emulator", "Gracefully close a running emulator so it flushes its config.", {"emulator": _EMU}),
+    _tool("focus_emulator_window",
+          "Bring an emulator window to the front and point screenshots at just that window: sharper detail, "
+          "and clicks are confined to it. Take a new screenshot afterwards (coordinates change). "
+          "Use emulator '' to go back to capturing the whole monitor.",
+          {"emulator": {"type": "string", "description": "Emulator id, or '' for whole-monitor capture"},
+           "window_title_contains": {"type": "string", "description": "Pick e.g. the 'Settings' window; '' = main window"}}),
 ]
 
 UIA_TOOLS: list[dict[str, Any]] = [
@@ -63,9 +70,37 @@ UIA_TOOLS: list[dict[str, Any]] = [
 
 
 class NativeTools:
-    def __init__(self, registry: EmulatorRegistry, uia: UiaController | None = None) -> None:
+    def __init__(self, registry: EmulatorRegistry, uia: UiaController | None = None,
+                 screen: ScreenCapture | None = None, window_api=None) -> None:
         self.registry = registry
         self.uia = uia
+        self.screen = screen
+        self._window_api = window_api  # (list_windows, focus_window); win32 by default
+
+    def _focus(self, emulator: str, title_contains: str) -> Any:
+        if self.screen is None:
+            raise ValueError("Window capture is not available")
+        if not emulator:
+            self.screen.set_window(None)
+            return f"Capturing {self.screen.describe_target()}. Take a screenshot."
+        if self._window_api:
+            list_windows, focus_window = self._window_api
+        else:
+            from ..desktop.win32 import focus_window, list_windows
+        adapter = self.registry.get(emulator)
+        pids = {p.pid for p in adapter.running_processes()}
+        if not pids:
+            raise ValueError(f"{adapter.display_name} is not running. Launch it first.")
+        windows = list_windows(pids)
+        matches = [w for w in windows if title_contains.lower() in w[1].lower()]
+        if not matches:
+            raise ValueError(f"No {adapter.display_name} window matching {title_contains!r}. "
+                             f"Open windows: {[t for _, t in windows]}")
+        hwnd, title = matches[0]  # EnumWindows is z-ordered: the topmost match wins
+        focused = focus_window(hwnd)
+        self.screen.set_window(WindowTarget(hwnd, title, adapter.id))
+        return {"capturing": title, "foreground": focused,
+                "hint": "Take a screenshot now; coordinates are relative to this window."}
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
@@ -89,6 +124,8 @@ class NativeTools:
             elif name == "close_emulator":
                 self.registry.get(inp["emulator"]).close()
                 out = "Closed."
+            elif name == "focus_emulator_window":
+                out = self._focus(inp["emulator"], inp.get("window_title_contains", ""))
             elif name == "ui_list_controls" and self.uia:
                 out = self.uia.list_controls(inp["emulator"], inp.get("window_title_contains", ""),
                                              bool(inp.get("include_labels")))

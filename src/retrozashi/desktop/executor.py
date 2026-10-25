@@ -12,7 +12,7 @@ from typing import Any, Protocol
 
 from ..core.safety import KillSwitch
 from .keymap import MODIFIER_VKS, parse_combo
-from .screen import ScreenCapture
+from .screen import CaptureTargetLost, ScreenCapture
 
 
 class InputBackend(Protocol):
@@ -99,7 +99,16 @@ class ActionExecutor:
     def _move(self, coord: list[int] | None) -> tuple[int, int] | None:
         if coord is None:
             return None
-        frame = self.screen.last or self.screen.capture()
+        frame = self.screen.last
+        # Coordinates are only meaningful against the screenshot Claude actually saw.
+        if frame is None:
+            raise ActionError(f"No screenshot of the current capture target ({self.screen.describe_target()}) "
+                              "yet; take a screenshot first.")
+        try:
+            if not self.screen.frame_still_valid(frame):
+                raise ActionError("The target window moved or resized since the last screenshot; take a new one.")
+        except CaptureTargetLost as e:
+            raise ActionError(str(e)) from e
         x, y = frame.to_screen(coord[0], coord[1])
         self.kill.check()
         self.io.set_cursor_pos(x, y)
@@ -124,8 +133,12 @@ class ActionExecutor:
 
     # ---- members ------------------------------------------------------------
     def _do_screenshot(self, inp: dict[str, Any]) -> ActionResult:
-        frame = self.screen.capture()
-        return ActionResult(_image(frame.png), f"Screenshot {frame.width}x{frame.height}")
+        try:
+            frame = self.screen.capture()
+        except CaptureTargetLost as e:  # window gone: fall back to the monitor and tell Claude
+            frame = self.screen.capture()
+            return ActionResult(_text(str(e)) + _image(frame.png), "Target window lost; monitor screenshot")
+        return ActionResult(_image(frame.png), f"Screenshot {frame.width}x{frame.height} of {self.screen.describe_target()}")
 
     def _do_zoom(self, inp: dict[str, Any]) -> ActionResult:
         return ActionResult(_image(self.screen.zoom(inp["region"])), f"Zoom {inp['region']}")

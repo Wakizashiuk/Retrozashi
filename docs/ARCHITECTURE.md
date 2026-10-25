@@ -102,7 +102,15 @@ Key protocol rules the loop implements (`agent/loop.py`):
 4. Claude answers in image pixels → `Frame.to_screen()` divides by the scale, adds the monitor
    origin, and clamps inside that monitor. It can never click on a different screen.
 5. `zoom` crops at native resolution for detail, but coordinates stay in full-screenshot space.
-6. Retrozashi's own window is hidden from capture (`WDA_EXCLUDEFROMCAPTURE`), so Claude never sees or clicks it.
+6. **Window targeting** (`focus_emulator_window`). Claude can narrow capture to one emulator window,
+   found by process id through `EnumWindows` and brought to the front. A 1600×900 settings dialog is
+   then sent at full detail instead of as a small part of a downscaled 4K monitor. Clicks are clamped
+   inside the window.
+   Bounds come from `DWMWA_EXTENDED_FRAME_BOUNDS`, which excludes the invisible resize border.
+   Before every click the executor checks that the window hasn't moved or resized since the last
+   screenshot. If it has, or if no screenshot of the current target exists yet, the action is refused
+   with "take a new screenshot". A closed or minimized window drops capture back to the monitor.
+7. Retrozashi's own window is hidden from capture (`WDA_EXCLUDEFROMCAPTURE`), so Claude never sees or clicks it.
 
 ### Three control tiers
 
