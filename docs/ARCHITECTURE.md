@@ -171,6 +171,34 @@ once via the GUI, re-read the file to learn the value, and use config writes fro
 To add an app, subclass `IniEmulator` (or `EmulatorAdapter`), fill in `process_names`,
 `config_candidates()` and `KNOWN_SETTINGS`, then `registry.register(MyAdapter())`.
 
+### Editing any section, on any build: search, learn-by-diff, guides
+
+Adapters' `KNOWN_SETTINGS` are hints. The tools that make *every* section editable are generic:
+
+| Tool | What it does |
+|---|---|
+| `read_emulator_config(search=…)` | Finds keys and values matching all the words, across every section, plus extra files such as Eden's saved input profiles |
+| `set_emulator_setting` | Writes any section and key, with a backup first |
+| `snapshot_config` → GUI change → `diff_config` | Shows exactly which keys and values the emulator wrote, so an enum like "3x resolution" is learned for *this* build |
+| `remember_setting` | Saves the learned mapping to `learned_settings.json`; `list_emulators` serves it back so next time it's a direct write |
+| `emulator_guide` | Step-by-step GUI playbooks (Eden: `controllers`, `upscaling`, `per_game`) |
+| `locate_emulator` | Searches the user folders, Program Files and emulator/game folders on each drive for the exe, and remembers it |
+| `close_emulator` | Shows the user a Yes/No dialog first (`confirm_close_emulator`), enforced in code |
+
+### Eden (Switch)
+
+- **Config:** `user/config/qt-config.ini` next to `eden.exe` (portable) or `%APPDATA%\eden\config`.
+  Every write also sets `key\default=false`, which Qt-settings needs, or Eden ignores the value.
+- **Per-game overrides:** `game_id=<16-hex title ID>` targets `config/custom/<TitleID>.ini`, adding
+  `key\use_global=false`. The value `global` removes an override. `list_games` reads title IDs from file
+  names in Eden's configured game folders.
+- **Upscaling:** `[Renderer] resolution_setup / scaling_filter / anti_aliasing …`. The known enum
+  values are yuzu-lineage hints, so the agent learns the real ones by diff on first use.
+- **Controllers:** bindings embed the device GUID (`"engine:sdl,port:0,guid:…,button:1"`), so mapping
+  goes through Eden's Controls screen via UI Automation (Input Device → auto-map, Controller Type →
+  Pro Controller). The guide covers Steam Input conflicts and 8BitDo modes. Diffs also cover
+  `config/input/*.ini` profiles.
+
 ### Per-game profiles (`profiles.py`, `ui/profiles_panel.py`)
 
 A profile is `{name, emulator, game_path, fullscreen, settings[section,key,value], notes}`, stored in

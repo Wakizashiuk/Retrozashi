@@ -12,6 +12,7 @@ from ..desktop.executor import ActionExecutor
 from ..desktop.screen import ScreenCapture
 from ..desktop.uia import UiaController, uia_available
 from ..emulators.registry import EmulatorRegistry
+from ..knowledge import LearnedSettings
 from ..profiles import ProfileManager
 from .events import EventBus, EventKind
 from .safety import KillSwitch
@@ -27,11 +28,12 @@ class Runtime:
         self.screen = ScreenCapture(settings.target_monitor)
         self.executor = ActionExecutor(self.screen, self.kill, action_delay=settings.safety.action_delay,
                                        settle_timeout=settings.safety.settle_timeout)
-        self.registry = EmulatorRegistry(settings.emulator_paths)
-        self.uia = UiaController(self.registry, self.kill) if uia_available() else None
         data = app_data_dir()
+        self.registry = EmulatorRegistry(settings.emulator_paths, remembered_paths=data / "emulator_paths.json")
+        self.uia = UiaController(self.registry, self.kill) if uia_available() else None
         self.profiles = ProfileManager(self.registry, self.bus, data / "profiles.json", data / "pending_reverts.json")
-        self.native = NativeTools(self.registry, self.uia, self.screen, profiles=self.profiles)
+        self.native = NativeTools(self.registry, self.uia, self.screen, profiles=self.profiles,
+                                  learned=LearnedSettings(data / "learned_settings.json"))
         self.agent = AgentLoop(settings.agent, self.bus, self.kill, self.executor, self.native)
         self._jobs: queue.Queue = queue.Queue()
         self._worker = threading.Thread(target=self._work, name="AgentWorker", daemon=True)

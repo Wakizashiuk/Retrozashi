@@ -51,6 +51,8 @@ class EmulatorAdapter(ABC):
     default_install_dirs: tuple[str, ...] = ()
     KNOWN_SETTINGS: tuple[KnownSetting, ...] = ()
     notes: str = ""
+    # Step-by-step know-how for GUI tasks, served on demand by the emulator_guide tool.
+    GUIDES: dict[str, str] = {}
 
     def __init__(self, exe_override: str | None = None) -> None:
         self._exe_override = Path(exe_override) if exe_override else None
@@ -75,6 +77,23 @@ class EmulatorAdapter(ABC):
 
     def config_path(self) -> Path | None:
         return next((p for p in self.config_candidates() if p.exists()), None)
+
+    def watch_files(self) -> list[Path]:
+        """Files that snapshot/diff cover: config files plus extras like saved input profiles."""
+        return self.config_files()
+
+    def for_game(self, game_id: str) -> "EmulatorAdapter":
+        """A view of this adapter whose config is one game's override file."""
+        raise ValueError(f"Per-game configs aren't supported for {self.display_name} yet")
+
+    def locate(self) -> list[Path]:
+        """Search the PC for this emulator's exe (used when it isn't running or configured)."""
+        from .inspect import default_search_roots, find_files
+
+        return find_files(self.process_names, default_search_roots())
+
+    def set_exe(self, path: Path) -> None:
+        self._exe_override = Path(path)
 
     # ---- process management -------------------------------------------------
     def running_processes(self) -> list[psutil.Process]:
@@ -195,6 +214,7 @@ class EmulatorAdapter(ABC):
             "config_file": str(cfg) if cfg else None,
             "running": self.is_running(),
             "known_settings": [f"[{s.section}] {s.key}: {s.meaning}" for s in self.KNOWN_SETTINGS],
+            "guides": sorted(self.GUIDES),
             "notes": self.notes,
         }
 
@@ -219,6 +239,7 @@ class IniEmulator(EmulatorAdapter):
     def _set_raw(self, path: Path, writes: list[tuple[str, str, str | None]]) -> None:
         from .ini_store import IniDocument
 
+        path.parent.mkdir(parents=True, exist_ok=True)  # per-game override files may not exist yet
         doc = IniDocument.load(path) if path.exists() else IniDocument()
         for section, key, value in writes:
             if value is None:

@@ -11,7 +11,8 @@ from typing import Any
 from ..desktop.screen import ScreenCapture, WindowTarget
 from ..desktop.uia import ACTIONS, UiaController, UiaError
 from ..emulators.backups import original_of
-from ..emulators.base import EmulatorBusy
+from ..emulators.base import EmulatorAdapter, EmulatorBusy
+from ..emulators.inspect import diff, search, snapshot
 from ..emulators.registry import EmulatorRegistry
 
 
@@ -26,19 +27,55 @@ def _tool(name: str, description: str, props: dict[str, Any]) -> dict[str, Any]:
 
 
 _EMU = {"type": "string", "description": "Emulator id from list_emulators, e.g. 'pcsx2'"}
+_GAME = {"type": "string", "description": "Per-game override: the game's ID (Eden: 16-hex title ID), or '' for "
+                                          "the global config"}
+MAX_READ_CHARS = 40_000
 
 NATIVE_TOOLS: list[dict[str, Any]] = [
     _tool("list_emulators",
-          "List supported emulators with exe path, config file path, whether running, and the config "
-          "keys Retrozashi knows. Call this first in any emulator task.", {}),
+          "List supported emulators with exe path, config file path, whether running, the config keys "
+          "Retrozashi knows, settings learned on this PC (use these exact values), and available guides. "
+          "Call this first in any emulator task.", {}),
     _tool("read_emulator_config",
-          "Read an emulator's current config. Always read before writing so you see real key names and values.",
-          {"emulator": _EMU, "section": {"type": "string", "description": "Section name, or '' for all sections"}}),
+          "Read an emulator's config: one section, everything, or every key/value matching `search` across "
+          "ALL sections (e.g. 'resolution', 'player_0 button', 'vsync'). Read before writing so you use the "
+          "real key names and values.",
+          {"emulator": _EMU, "section": {"type": "string", "description": "Section name, or '' for all"},
+           "search": {"type": "string", "description": "Words that must all appear in section/key/value; '' = no filter"},
+           "game_id": _GAME}),
     _tool("set_emulator_setting",
-          "Change one config value on disk (a timestamped .bak is kept). Fails if the emulator is running, "
-          "because it would overwrite the change on exit; close it first or use the GUI instead.",
+          "Change one config value on disk, in any section (a timestamped .bak is kept). Fails if the emulator "
+          "is running, because it would overwrite the change on exit; close it first or use the GUI instead.",
           {"emulator": _EMU, "section": {"type": "string"}, "key": {"type": "string"},
-           "value": {"type": "string", "description": "New value exactly as it should appear in the file"}}),
+           "value": {"type": "string", "description": "New value exactly as it should appear in the file. "
+                                                      "Eden per-game: 'global' removes the override"},
+           "game_id": _GAME}),
+    _tool("snapshot_config",
+          "Remember the emulator's current config (all sections, plus saved input profiles), so diff_config can "
+          "show exactly what a GUI change wrote. Use before changing an option in the emulator's own window "
+          "whose key or value you don't know.",
+          {"emulator": _EMU, "game_id": _GAME}),
+    _tool("diff_config",
+          "Show every key that changed since snapshot_config: file, section, key, before -> after. The emulator "
+          "writes most settings when you press OK/Apply (some only on exit).",
+          {"emulator": _EMU, "game_id": _GAME}),
+    _tool("remember_setting",
+          "Save a setting learned from a diff (e.g. label '3x resolution' = [Renderer] resolution_setup=5) so "
+          "future requests can write it directly. Shown in list_emulators as learned_settings.",
+          {"emulator": _EMU, "label": {"type": "string", "description": "What the option is called in the GUI"},
+           "section": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"},
+           "meaning": {"type": "string", "description": "Optional extra context, or ''"}}),
+    _tool("emulator_guide",
+          "Step-by-step guide for a task in an emulator's GUI (topics are listed under 'guides' in "
+          "list_emulators, e.g. eden: controllers, upscaling, per_game). Read it before starting that task.",
+          {"emulator": _EMU, "topic": {"type": "string"}}),
+    _tool("locate_emulator",
+          "Search this PC for an emulator's exe when list_emulators shows exe=null, and remember the location.",
+          {"emulator": _EMU}),
+    _tool("list_games",
+          "List game files in the emulator's game folders with their IDs where they can be read from the file "
+          "name (Eden: title IDs). Filter by part of the name, or '' for all.",
+          {"emulator": _EMU, "query": {"type": "string"}}),
     _tool("list_config_backups",
           "List an emulator's config backups (one is made before every write), newest first.",
           {"emulator": _EMU}),
@@ -49,7 +86,10 @@ NATIVE_TOOLS: list[dict[str, Any]] = [
     _tool("launch_emulator",
           "Start an emulator, optionally booting a game. Use '' for game_path to open just the frontend.",
           {"emulator": _EMU, "game_path": {"type": "string"}, "fullscreen": {"type": "boolean"}}),
-    _tool("close_emulator", "Gracefully close a running emulator so it flushes its config.", {"emulator": _EMU}),
+    _tool("close_emulator",
+          "Gracefully close a running emulator so it flushes its config. The user is shown a confirmation "
+          "dialog first; if they decline, make the change through the emulator's GUI instead.",
+          {"emulator": _EMU}),
     _tool("list_profiles",
           "List the user's per-game profiles (made in the Profiles panel): name, emulator, game, settings, "
           "and which are currently applied.", {}),
@@ -88,9 +128,14 @@ UIA_TOOLS: list[dict[str, Any]] = [
 
 class NativeTools:
     def __init__(self, registry: EmulatorRegistry, uia: UiaController | None = None,
-                 screen: ScreenCapture | None = None, window_api=None, profiles=None) -> None:
+                 screen: ScreenCapture | None = None, window_api=None, profiles=None,
+                 learned=None, confirm=None) -> None:
         self.registry = registry
         self.profiles = profiles  # ProfileManager
+        self.learned = learned  # LearnedSettings
+        # Asks the user a yes/no question (the UI shows a dialog); None = no UI, allow.
+        self.confirm = confirm
+        self._snapshots: dict[tuple[str, str], Any] = {}
         self.uia = uia
         self.screen = screen
         self._window_api = window_api  # (list_windows, focus_window); win32 by default
@@ -111,6 +156,50 @@ class NativeTools:
         for emulator, bak in run:  # recorded oldest first: keep the first backup per file
             earliest.setdefault(original_of(bak), (emulator, bak))
         return [self.registry.get(emu).restore_backup(bak) for emu, bak in earliest.values()]
+
+    def _adapter(self, inp: dict[str, Any]) -> EmulatorAdapter:
+        adapter = self.registry.get(inp["emulator"])
+        game = (inp.get("game_id") or "").strip()
+        return adapter.for_game(game) if game else adapter
+
+    def _read(self, inp: dict[str, Any]) -> Any:
+        adapter = self._adapter(inp)
+        game = (inp.get("game_id") or "").strip()
+        if inp.get("search"):
+            hits = search(snapshot(adapter.watch_files()), inp["search"])
+            return hits or f"Nothing matching {inp['search']!r} in {adapter.display_name}'s config."
+        out = adapter.read_settings(inp.get("section") or None)
+        if not out:
+            return (f"No overrides for game {game} yet." if game
+                    else "No config file found (launch the emulator once to create it, or locate_emulator).")
+        text = json.dumps(out, indent=1, default=str)
+        if len(text) > MAX_READ_CHARS:  # huge configs: give the map, not the whole territory
+            return {"too_large": f"{len(text)} chars", "sections": {k: len(v) if isinstance(v, dict) else 1
+                                                                    for k, v in out.items()},
+                    "hint": "Read one section, or use search."}
+        return out
+
+    def _close(self, inp: dict[str, Any]) -> str:
+        adapter = self.registry.get(inp["emulator"])
+        if not adapter.is_running():
+            return f"{adapter.display_name} isn't running."
+        if self.confirm and not self.confirm(f"Retrozashi wants to close {adapter.display_name} so it can save "
+                                             "config changes.\n\nAny unsaved game progress will be lost. Close it?"):
+            raise ValueError(f"The user chose not to close {adapter.display_name}. Make the change through its "
+                             "GUI instead (e.g. Configure / Properties), or ask them to close it.")
+        adapter.close()
+        return "Closed."
+
+    def _locate(self, inp: dict[str, Any]) -> Any:
+        adapter = self.registry.get(inp["emulator"])
+        found = adapter.locate()
+        if not found:
+            return (f"Couldn't find {', '.join(adapter.process_names)} in the usual places. Ask the user where "
+                    f"{adapter.display_name} is installed; they can set it in settings.toml [emulator_paths].")
+        self.registry.remember_exe(adapter.id, found[0])
+        cfg = adapter.config_path()
+        return {"using": str(found[0]), "other_copies": [str(p) for p in found[1:5]],
+                "config_file": str(cfg) if cfg else None}
 
     def _focus(self, emulator: str, title_contains: str) -> Any:
         if self.screen is None:
@@ -145,13 +234,16 @@ class NativeTools:
         """Returns (result text, is_error)."""
         try:
             if name == "list_emulators":
-                out: Any = [self.registry.get(i).describe() for i in self.registry.ids()]
+                out: Any = []
+                for i in self.registry.ids():
+                    info = self.registry.get(i).describe()
+                    if self.learned and (learned := self.learned.for_emulator(i)):
+                        info["learned_settings"] = learned
+                    out.append(info)
             elif name == "read_emulator_config":
-                out = self.registry.get(inp["emulator"]).read_settings(inp.get("section") or None)
-                if not out:
-                    out = "No config file found (launch the emulator once to create it)."
+                out = self._read(inp)
             elif name == "set_emulator_setting":
-                out = self.registry.get(inp["emulator"]).set_setting(inp["section"], inp["key"], inp["value"])
+                out = self._adapter(inp).set_setting(inp["section"], inp["key"], inp["value"])
                 if out.get("backup"):
                     if not self.journal:
                         self.begin_run()
@@ -166,8 +258,38 @@ class NativeTools:
                                                                 bool(inp.get("fullscreen")))
                 out = {"pid": pid, "hint": "Wait a few seconds, then take a screenshot to confirm it opened."}
             elif name == "close_emulator":
-                self.registry.get(inp["emulator"]).close()
-                out = "Closed."
+                out = self._close(inp)
+            elif name == "snapshot_config":
+                adapter = self._adapter(inp)
+                snap = snapshot(adapter.watch_files())
+                self._snapshots[(adapter.id, inp.get("game_id") or "")] = snap
+                out = {"keys": len(snap), "files": [p.name for p in adapter.watch_files()],
+                       "next": "Make the change (GUI: press OK/Apply), then diff_config."}
+            elif name == "diff_config":
+                adapter = self._adapter(inp)
+                before = self._snapshots.get((adapter.id, inp.get("game_id") or ""))
+                if before is None:
+                    raise ValueError("No snapshot yet: call snapshot_config first.")
+                changes = diff(before, snapshot(adapter.watch_files()))
+                out = {"changes": changes, "hint": "remember_setting for options worth reusing."} if changes else (
+                    "No changes yet. Did the GUI change get applied (OK/Apply)? Some emulators only write on exit.")
+            elif name == "remember_setting":
+                if self.learned is None:
+                    raise ValueError("Learning is not available")
+                self.learned.remember(self.registry.get(inp["emulator"]).id, inp["label"], inp["section"],
+                                      inp["key"], inp["value"], inp.get("meaning", ""))
+                out = f"Remembered '{inp['label']}'."
+            elif name == "emulator_guide":
+                adapter = self.registry.get(inp["emulator"])
+                guide = adapter.GUIDES.get(inp["topic"].strip().lower())
+                out = guide or f"No guide {inp['topic']!r} for {adapter.display_name}. Available: {sorted(adapter.GUIDES) or 'none'}"
+            elif name == "locate_emulator":
+                out = self._locate(inp)
+            elif name == "list_games":
+                adapter = self.registry.get(inp["emulator"])
+                if not hasattr(adapter, "list_games"):
+                    raise ValueError(f"Game listing isn't supported for {adapter.display_name} yet")
+                out = adapter.list_games(inp.get("query", "")) or "No matching games in the configured game folders."
             elif name == "list_profiles":
                 if self.profiles is None:
                     raise ValueError("Profiles are not available")

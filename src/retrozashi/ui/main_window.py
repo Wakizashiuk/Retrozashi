@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import html
+import threading
 import time
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -22,9 +23,17 @@ STATUS_STYLE = {
 }
 
 
+class _Question:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.answer = False
+        self.done = threading.Event()
+
+
 class EventBridge(QObject):
     """Moves events from worker threads onto the Qt GUI thread."""
     event = Signal(object)
+    question = Signal(object)
     voice_state = Signal(str)
     voice_text = Signal(str)
 
@@ -39,6 +48,9 @@ class MainWindow(QMainWindow):
         self.bridge.voice_state.connect(self._set_status)
         self.bridge.voice_text.connect(self._on_voice_text)
         runtime.bus.subscribe(self.bridge.event.emit)
+        self.bridge.question.connect(self._answer_question)
+        if runtime.settings.safety.confirm_close_emulator:
+            runtime.native.confirm = self.ask_from_worker
 
         self.setWindowTitle("Retrozashi")
         self.resize(1200, 760)
@@ -129,6 +141,17 @@ class MainWindow(QMainWindow):
     def _pick_monitor(self, _index: int) -> None:
         self.runtime.set_monitor(self.monitor.currentData())
         self.target.setText(f"Target: {self.runtime.screen.describe_target()}")
+
+    def ask_from_worker(self, text: str, timeout: float = 120.0) -> bool:
+        """Called on the agent thread: shows a Yes/No dialog on the GUI thread and waits for it.
+        No answer within `timeout` counts as No."""
+        q = _Question(text)
+        self.bridge.question.emit(q)
+        return q.done.wait(timeout) and q.answer
+
+    def _answer_question(self, q: _Question) -> None:
+        q.answer = QMessageBox.question(self, "Retrozashi", q.text) == QMessageBox.Yes
+        q.done.set()
 
     def ask_api_key(self) -> None:
         key, ok = QInputDialog.getText(

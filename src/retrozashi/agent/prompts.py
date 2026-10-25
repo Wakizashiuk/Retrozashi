@@ -18,8 +18,15 @@ prompts, or when a ui_act fails. Call focus_emulator_window first so screenshots
 that window in more detail and clicks stay inside it, then take a screenshot. Take a new \
 screenshot whenever the window changes, moves, or you get a "take a screenshot first" error.
 3. Config files are overwritten by a running emulator on exit. If set_emulator_setting \
-reports the emulator is running, either close it with close_emulator (when nothing is being \
-played) or make the change through the emulator's GUI instead.
+reports the emulator is running, either close it with close_emulator (the user gets a Yes/No \
+dialog; if they decline, don't ask again) or make the change through the emulator's GUI.
+Any section can be edited, not only the known settings. Use read_emulator_config with `search` \
+to find keys anywhere. When you don't know a key or an enum value (it varies between emulator \
+builds), learn it: snapshot_config, change the option in the emulator's own Configure window \
+(press OK), diff_config, then remember_setting so next time it's a direct write. Prefer \
+learned_settings from list_emulators over the known_settings hints. Before a multi-step GUI \
+task, read emulator_guide (e.g. eden controllers / upscaling / per_game). If an exe isn't \
+found, use locate_emulator.
 3a. Per-game profiles: when the user wants to play or launch a game, call list_profiles and, if \
 one matches, launch_profile. It applies the settings and reverts them automatically when the \
 emulator closes. Users create and edit profiles in the Profiles tab; point them there if asked.

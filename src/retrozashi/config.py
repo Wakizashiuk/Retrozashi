@@ -31,6 +31,8 @@ class SafetySettings:
     kill_hotkey: str = "ctrl+alt+k"
     # Require a confirmation click in the UI before the agent writes any config file.
     confirm_config_writes: bool = False
+    # Ask (Yes/No dialog) before the agent closes a running emulator to write its config.
+    confirm_close_emulator: bool = True
     # Seconds to pause between batched computer actions so you can see what is happening.
     action_delay: float = 0.15
     # Before a screenshot that follows an action, wait up to this long for the screen to stop changing.

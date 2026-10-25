@@ -49,6 +49,13 @@ Each phase ends with something you can run and use.
 - Per-game config files (RPCS3 `custom_configs`, PCSX2 `gamesettings/*.ini`, Dolphin `GameSettings`).
 - Controller profiles: detect connected pads via SDL/XInput and generate bindings per emulator.
 
+## Phase 4b: Deep emulator control
+- [x] Search every section; learn unknown keys/enums by snapshot → GUI change → diff; remember per PC.
+- [x] Eden: portable/AppData detection, per-game overrides (title IDs), controller + upscaling guides,
+  input profiles in diffs, exe search, Yes/No before closing a running emulator.
+- [ ] Same per-game + guides treatment for PCSX2, DuckStation, Dolphin, RPCS3.
+- [ ] Eden on the user's PC: run the controllers/upscaling guides once, record learned values.
+
 ## Phase 5: Ship it
 - [x] PyInstaller one-folder build (`packaging/Retrozashi.spec`, `scripts/build.ps1`), self-tested and zipped by CI.
 - [x] API key in Windows Credential Manager (`keyring`), with a first-run prompt and a 🔑 button.
