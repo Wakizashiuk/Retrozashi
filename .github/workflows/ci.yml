@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]          # a version tag also publishes a GitHub Release (job "release" below)
+  pull_request:
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            pip install -e ".[dev,uia]"
+          else
+            pip install -e ".[dev]"
+          fi
+      - name: Test
+        env:
+          PYTHONFAULTHANDLER: "1"   # if the interpreter ever crashes (e.g. at shutdown), print where
+        run: python -m pytest -v
+
+  build-exe:
+    name: Build Retrozashi.exe
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Build and self-test
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Retrozashi-win64
+          path: dist/Retrozashi-win64.zip
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-report
+          path: dist/selftest.json
+          if-no-files-found: ignore
+
+  release:
+    name: Publish GitHub Release
+    # A v* tag (pushed, or created on GitHub's "Draft a new release" page) releases that tag. A push to
+    # main releases v<version from pyproject.toml> once; later pushes skip it until the version is bumped.
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+    needs: build-exe
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Retrozashi-win64
+      - name: Create or update the release with the exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $tag already exists; bump the version in pyproject.toml to publish a new one."
+              exit 0
+            fi
+          fi
+          zip="Retrozashi-${tag}-win64.zip"
+          mv Retrozashi-win64.zip "$zip"
+          sha256sum "$zip" > "$zip.sha256"
+          notes="docs/releases/${tag}.md"
+          [ -f "$notes" ] || notes=docs/releases/default.md
+          pre=""   # v0.x and suffixed tags (v1.0.0-rc1) are pre-releases
+          if [[ "$tag" == v0.* || "$tag" == *-* ]]; then pre="--prerelease"; fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Made on the website first: attach the build and fill in what's missing.
+            gh release upload "$tag" "$zip" "$zip.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+            if [ -n "$pre" ]; then gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --prerelease; fi
+          else
+            # Creates the tag too when it doesn't exist yet (the main-push case).
+            gh release create "$tag" "$zip" "$zip.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Retrozashi $tag" --notes-file "$notes" $pre
+          fi
