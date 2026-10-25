@@ -47,6 +47,12 @@ if ($lines.Count -ne 2 -or $lines[0].result.serverInfo.name -ne "retrozashi" -or
 }
 Write-Host "MCP OK: $($lines[1].result.tools.Count) tools"
 
+Write-Host "==> Claude app check (--doctor) runs the packaged exe's own handshake" -ForegroundColor Cyan
+$doctor = Join-Path $env:TEMP "retrozashi-doctor.txt"
+Start-Process "dist\Retrozashi\Retrozashi.exe" -ArgumentList "--doctor", "`"$doctor`"" -Wait | Out-Null
+Get-Content $doctor
+if (-not (Select-String -Path $doctor -Pattern "starts and answers like it should" -Quiet)) { throw "Doctor handshake failed" }
+
 Write-Host "==> Zipping" -ForegroundColor Cyan
 Compress-Archive -Path "dist\Retrozashi" -DestinationPath "dist\Retrozashi-win64.zip" -Force
 $size = "{0:N0} MB" -f ((Get-Item "dist\Retrozashi-win64.zip").Length / 1MB)

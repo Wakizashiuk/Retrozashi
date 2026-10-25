@@ -118,12 +118,15 @@ class MainWindow(QMainWindow):
         claude_app = QPushButton("Use in Claude app", clicked=self.use_claude_app,
                                  toolTip="Chat with Claude in the Claude desktop app instead: no API key, "
                                          "covered by your Claude plan")
+        check = QPushButton("Check Claude app", clicked=self.check_claude_app,
+                            toolTip="Find out why the Claude desktop app can't see Retrozashi, and fix it")
         lay.addWidget(self.status)
         lay.addWidget(kill)
         row = QHBoxLayout()
         row.addWidget(undo, 1)
         row.addWidget(key)
         row.addWidget(claude_app)
+        row.addWidget(check)
         lay.addLayout(row)
         lay.addWidget(QLabel("Agent controls:"))
         lay.addWidget(self.monitor)
@@ -195,8 +198,38 @@ class MainWindow(QMainWindow):
             "1. Fully quit the Claude app (right-click its tray icon → Quit) and open it again.\n"
             "2. In a new chat, ask e.g. \"Using Retrozashi, set Eden to 2x resolution\".\n"
             "3. Allow Retrozashi's tools when Claude asks.\n\n"
-            "This window isn't needed for that; Ctrl+Alt+K still stops any mouse/keyboard control.\n\n"
+            "This window isn't needed for that; Ctrl+Alt+K still stops any mouse/keyboard control.\n"
+            "If Claude doesn't see Retrozashi, press Check Claude app.\n\n"
             f"Updated: {where}")
+
+    def check_claude_app(self) -> None:
+        from PySide6.QtGui import QGuiApplication
+
+        from ..claude_app import FAIL, OK, diagnose
+
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            report = diagnose()  # includes starting Retrozashi the way Claude does: a few seconds
+        except Exception as e:
+            QMessageBox.critical(self, "Retrozashi", f"The check itself failed: {e}")
+            return
+        finally:
+            QGuiApplication.restoreOverrideCursor()
+        box = QMessageBox(self)
+        box.setWindowTitle("Claude app connection")
+        box.setIcon({OK: QMessageBox.Information, FAIL: QMessageBox.Critical}.get(report.worst, QMessageBox.Warning))
+        box.setText("All good: the Claude app can use Retrozashi." if report.worst == OK
+                    else "Here's what's stopping the Claude app from using Retrozashi:")
+        box.setInformativeText(report.summary())
+        box.setDetailedText(report.text())
+        fix = box.addButton("Fix it", QMessageBox.AcceptRole) if report.fixable else None
+        copy = box.addButton("Copy report", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Close)
+        box.exec()
+        if box.clickedButton() is copy:
+            QGuiApplication.clipboard().setText(report.text())
+        elif fix is not None and box.clickedButton() is fix:
+            self.use_claude_app()
 
     def ask_api_key(self) -> None:
         key, ok = QInputDialog.getText(

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from retrozashi.agent.tools import NativeTools
-from retrozashi.claude_app import install
+from retrozashi.claude_app import FAIL, OK, WARN, diagnose, ensure_local_copy, handshake, install
 from retrozashi.core.events import EventBus
 from retrozashi.core.safety import KillSwitch
 from retrozashi.desktop.executor import ActionExecutor
@@ -158,3 +158,112 @@ def test_install_into_claude_app_config(tmp_path):
     fresh = tmp_path / "new" / "Claude" / "claude_desktop_config.json"     # no Claude config yet: created
     install([fresh], entry)
     assert json.loads(fresh.read_text()) == {"mcpServers": {"retrozashi": entry}}
+
+
+def _registered(tmp_path, entry, mtime=1000.0):
+    cfg = tmp_path / "Claude" / "claude_desktop_config.json"
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    install([cfg], entry)
+    os.utime(cfg, (mtime, mtime))
+    return cfg
+
+
+def test_diagnose_spots_each_problem(tmp_path):
+    exe = tmp_path / "app" / "Retrozashi.exe"
+    exe.parent.mkdir()
+    exe.write_text("")
+    entry = {"command": str(exe), "args": ["--mcp"]}
+    healthy = dict(entry=entry, run_handshake=lambda e: (36, 1.5), claude_started=lambda: [2000.0],
+                   remote=lambda p: False)
+    cfg_path = tmp_path / "Claude" / "claude_desktop_config.json"
+
+    report = diagnose([tmp_path / "nowhere" / "c.json"], **healthy)               # Claude not installed
+    assert report.worst == FAIL and "isn't installed" in report.summary() and "36 tools" in report.summary()
+
+    cfg_path.parent.mkdir()
+    report = diagnose([cfg_path], **healthy)                                       # not registered yet
+    assert report.worst == FAIL and report.fixable
+
+    cfg = _registered(tmp_path, entry)
+    (cfg.parent / "logs").mkdir()
+    (cfg.parent / "logs" / "mcp-server-retrozashi.log").write_text("Server started and connected successfully\n")
+    report = diagnose([cfg], **healthy)
+    assert report.worst == OK and "36 tools" in report.summary() and not report.fixable
+
+    assert "already open" in diagnose([cfg], **{**healthy, "claude_started": lambda: [500.0]}).summary()
+    assert "isn't running" in diagnose([cfg], **{**healthy, "claude_started": lambda: []}).summary()
+    slow = diagnose([cfg], **{**healthy, "run_handshake": lambda e: (36, 40.0)})
+    assert slow.worst == WARN and "slowly" in slow.summary()
+
+    def boom(e):
+        raise TimeoutError("no answer in 45 s")
+    assert "didn't start" in diagnose([cfg], **{**healthy, "run_handshake": boom}).summary()
+    assert diagnose([cfg], **{**healthy, "remote": lambda p: True}).fixable       # NAS: offer the local copy
+    on_nas = {**healthy, "entry": {"command": r"Z:\Retrozashi\Retrozashi.exe", "args": ["--mcp"]},
+              "remote": lambda p: str(p).startswith("Z:")}
+    report = diagnose([cfg], **on_nas)                                             # ... after Fix it: all good
+    assert report.worst == OK and not report.fixable and "copy on this PC" in report.summary()
+
+    other = {"command": str(tmp_path / "old" / "Retrozashi.exe"), "args": ["--mcp"]}
+    install([cfg], other)                                                          # folder moved or deleted
+    report = diagnose([cfg], **healthy)
+    assert report.worst == FAIL and "no longer exists" in report.summary() and report.fixable
+
+    cfg.write_text("{ not json")                                                   # breaks every server in Claude
+    assert "broken" in diagnose([cfg], **healthy).summary()
+
+
+def test_diagnose_reads_claude_logs(tmp_path):
+    exe = tmp_path / "Retrozashi.exe"
+    exe.write_text("")
+    entry = {"command": str(exe), "args": ["--mcp"]}
+    cfg = _registered(tmp_path, entry)
+    logs = cfg.parent / "logs"
+    logs.mkdir()
+    kw = dict(entry=entry, run_handshake=None, claude_started=lambda: [2000.0], remote=lambda p: False)
+    assert "hasn't tried" in diagnose([cfg], **kw).summary()
+    (logs / "mcp.log").write_text("other server ok\n[retrozashi] Server disconnected. Error: spawn ENOENT\n")
+    report = diagnose([cfg], **kw)
+    assert report.log_path == logs / "mcp.log" and report.log_tail == ["[retrozashi] Server disconnected. Error: spawn ENOENT"]
+    assert "ENOENT" in report.summary() and "ENOENT" in report.text()
+    (logs / "mcp-server-retrozashi.log").write_text(
+        "Initializing server...\nServer started and connected\n"
+        '[info] Message from server: {"result":{"tools":[{"description":"' + "returns an error if " * 40 + '"}]}}\n')
+    report = diagnose([cfg], **kw)
+    assert report.log_path.name == "mcp-server-retrozashi.log" and report.worst == OK
+    assert report.log_tail[-1].endswith(" …") and len(report.log_tail[-1]) < 410
+
+
+def test_handshake_runs_the_real_server(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).parents[1] / "src"))
+    tools, secs = handshake({"command": sys.executable, "args": ["-m", "retrozashi", "--mcp"]})
+    assert tools > 20 and secs < 45
+
+
+def test_local_copy_only_from_network_drives(tmp_path):
+    share = tmp_path / "nas" / "Retrozashi"
+    (share / "_internal").mkdir(parents=True)
+    (share / "Retrozashi.exe").write_text("exe")
+    (share / "_internal" / "python313.dll").write_text("dll")
+    exe = share / "Retrozashi.exe"
+    assert ensure_local_copy(exe, tmp_path / "local", remote=lambda p: False) == exe
+    copied = ensure_local_copy(exe, tmp_path / "local", remote=lambda p: True)
+    assert copied == tmp_path / "local" / "Retrozashi.exe" and (tmp_path / "local" / "_internal" / "python313.dll").exists()
+
+
+def test_only_the_desktop_app_counts_as_claude(monkeypatch):
+    import psutil
+
+    from retrozashi import claude_app
+
+    class P:
+        def __init__(self, name, exe, t):
+            self.info = {"name": name, "exe": exe, "create_time": t}
+
+    procs = [P("claude.exe", r"C:\Users\me\AppData\Local\AnthropicClaude\app-1.2.3\claude.exe", 10.0),
+             P("claude.exe", r"C:\Program Files\WindowsApps\Claude_1.2.3.0_x64__pzs8sxrjxfjjc\app\claude.exe", 20.0),
+             P("claude.exe", r"C:\Users\me\.local\bin\claude.exe", 30.0),          # Claude Code CLI
+             P("notepad.exe", r"C:\Windows\notepad.exe", 40.0)]
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs: procs)
+    assert claude_app._claude_start_times() == [10.0, 20.0]

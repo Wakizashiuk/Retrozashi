@@ -29,6 +29,9 @@ order. Each takes about 15–30 minutes the first time and is a single sentence 
       From then on, you say every 🗣️ line below **in a Claude app chat**, starting with *"Using Retrozashi, …"*,
       and allow Retrozashi's tools when Claude asks. (Prefer chat and voice in Retrozashi's own window? Choose
       *Enter an API key* instead. That's billed per use by Anthropic.)
+- [ ] **Claude doesn't know about Retrozashi?** Press **Check Claude app** in Retrozashi's window. It checks the
+      Claude app's settings, starts Retrozashi the way Claude does, reads Claude's log and says what's wrong.
+      **Fix it** repairs what it can (and copies Retrozashi to this PC if it's on a network drive).
 - [ ] **Controllers:** connect them *before* opening an emulator. Most emulators only detect pads at launch.
 - [ ] **Steam:** close it, or turn off Steam Input for your DualSense/DS4 and 8BitDo. Otherwise you get
       doubled or missing inputs in every emulator.
@@ -251,6 +254,8 @@ borderless fullscreen fill it automatically. Internal resolution (upscaling) sta
 | A/B (Cross/Circle) swapped | 8BitDo in Switch mode uses Nintendo labels. Ask: *"swap the face buttons for player 1 in <emulator>"*. |
 | "No ID" for a game | Compressed image (.chd/.rvz/.cso). Retrozashi reads the ID from the emulator's Properties instead. |
 | "diff shows no changes" | The option was cancelled instead of OK'd, or it only saves on exit. Ask it to retry. |
+| Claude says it doesn't know Retrozashi | Press **Check Claude app** (or run `Retrozashi.exe --doctor`). Most often the Claude app was still open: quit it from the tray icon, not the X. |
+| Emulators on a NAS / network drive | Fine. Tell Claude once: *"my emulators are in Z:\Emulators"*. Keep Retrozashi itself on this PC. |
 | Anything else | `%APPDATA%\Retrozashi\retrozashi.log` has details. |
 
 ## Send these back afterwards 🙏

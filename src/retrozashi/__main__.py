@@ -4,6 +4,7 @@
     Retrozashi.exe --self-test out.json check the bundle (imports, Qt, capture, UIA, voice, keyring) and exit
     Retrozashi.exe --mcp                MCP server for the Claude desktop app (stdio; no API key needed)
     Retrozashi.exe --install-claude-app add Retrozashi to the Claude desktop app's MCP servers
+    Retrozashi.exe --doctor [report]    check the Claude app connection; writes a report and opens it
     Retrozashi.exe --sync-controllers   Vibepollo prep command: start a background controller sync, return
     Retrozashi.exe --install-stream-sync <sunshine.conf> <command>   (elevated helper) add the prep command
 """
@@ -11,8 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import traceback
+from pathlib import Path
 
 log = logging.getLogger("retrozashi")
 
@@ -120,6 +123,15 @@ def headless(argv: list[str]) -> int | None:
         for r in install():
             print(f"Added Retrozashi to {r['config']}. Restart the Claude app to load it.")
         return 0
+    if len(argv) >= 2 and argv[1] == "--doctor":
+        from .claude_app import diagnose
+        from .config import app_data_dir
+        report = diagnose()
+        out = Path(argv[2]) if len(argv) > 2 else app_data_dir() / "claude_app_check.txt"
+        out.write_text(report.text(), encoding="utf-8")
+        if len(argv) == 2 and sys.platform == "win32":
+            os.startfile(out)  # a windowed exe has no console to print to
+        return 0 if report.worst != "fail" else 1
     if len(argv) >= 2 and argv[1] == "--sync-controllers":
         from .streaming import start_background_sync
         start_background_sync()
@@ -138,7 +150,6 @@ def headless(argv: list[str]) -> int | None:
         sync_worker(sets, connected_pads, int(argv[2]) if len(argv) > 2 else 45, log=log.info)
         return 0
     if len(argv) >= 4 and argv[1] == "--install-stream-sync":
-        from pathlib import Path
         from .streaming import install_prep_command
         try:
             install_prep_command(Path(argv[2]), argv[3])
