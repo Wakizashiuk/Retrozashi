@@ -104,7 +104,7 @@ class AgentLoop:
         except anthropic.APIStatusError as e:
             self.bus.publish(EventKind.ERROR, f"API error {e.status_code}: {e.message}")
         except anthropic.AnthropicError as e:  # e.g. no credentials found at all
-            self.bus.publish(EventKind.ERROR, f"{e}. Click 🔑 API key to add one.")
+            self.bus.publish(EventKind.ERROR, f"{e}. Click 🔑 API key to add one, or \"Use in Claude app\" to chat in the Claude desktop app instead (no API key).")
             self.reset_client()
         finally:
             self.bus.publish(EventKind.STATUS, "halted" if self.kill.halted else "idle")

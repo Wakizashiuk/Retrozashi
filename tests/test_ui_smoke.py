@@ -41,6 +41,7 @@ def test_main_window_builds(app, runtime):
     assert window.status.text() == "CONTROLLING INPUT"
     assert window.profiles_panel.list.count() == 0
     assert runtime.native.confirm is not None
+    assert any(b.text() == "Use in Claude app" for b in window.findChildren(QtWidgets.QPushButton))
     dispose(window, app)
 
 

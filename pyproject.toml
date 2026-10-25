@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "retrozashi"
-version = "0.1.0"
+version = "0.2.0"
 description = "Voice + chat AI agent that configures and controls Windows emulators via config files and Claude Computer Use."
 readme = "README.md"
 requires-python = ">=3.11"

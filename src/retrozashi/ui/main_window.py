@@ -115,11 +115,15 @@ class MainWindow(QMainWindow):
         self.shot.setStyleSheet("background:#111;color:#888")
         undo = QPushButton("↶  Undo last request's config changes", clicked=self.runtime.undo_last)
         key = QPushButton("🔑  API key", clicked=self.ask_api_key)
+        claude_app = QPushButton("Use in Claude app", clicked=self.use_claude_app,
+                                 toolTip="Chat with Claude in the Claude desktop app instead: no API key, "
+                                         "covered by your Claude plan")
         lay.addWidget(self.status)
         lay.addWidget(kill)
         row = QHBoxLayout()
         row.addWidget(undo, 1)
         row.addWidget(key)
+        row.addWidget(claude_app)
         lay.addLayout(row)
         lay.addWidget(QLabel("Agent controls:"))
         lay.addWidget(self.monitor)
@@ -156,6 +160,43 @@ class MainWindow(QMainWindow):
     def _answer_question(self, q: _Question) -> None:
         q.answer = QMessageBox.question(self, "Retrozashi", q.text) == QMessageBox.Yes
         q.done.set()
+
+    def first_run(self) -> None:
+        """No API key yet: offer the Claude app route first (no extra cost on a Claude plan)."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Welcome to Retrozashi")
+        box.setText("How do you want to talk to Retrozashi?")
+        box.setInformativeText(
+            "• Claude desktop app: chat with Claude there and it uses Retrozashi's tools. "
+            "Included in your Claude plan, no API key needed.\n"
+            "• API key: chat and voice right here in this window, billed per use by Anthropic.")
+        app_btn = box.addButton("Use the Claude app", QMessageBox.AcceptRole)
+        key_btn = box.addButton("Enter an API key", QMessageBox.ActionRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is app_btn:
+            self.use_claude_app()
+        elif box.clickedButton() is key_btn:
+            self.ask_api_key()
+
+    def use_claude_app(self) -> None:
+        from ..claude_app import install
+
+        try:
+            results = install()
+        except Exception as e:
+            QMessageBox.critical(self, "Retrozashi", f"Couldn't update the Claude app's settings: {e}")
+            return
+        where = "\n".join(r["config"] for r in results)
+        self._log("🔌 Added Retrozashi to the Claude desktop app")
+        QMessageBox.information(
+            self, "Retrozashi",
+            "Retrozashi is now a tool in the Claude desktop app.\n\n"
+            "1. Fully quit the Claude app (right-click its tray icon → Quit) and open it again.\n"
+            "2. In a new chat, ask e.g. \"Using Retrozashi, set Eden to 2x resolution\".\n"
+            "3. Allow Retrozashi's tools when Claude asks.\n\n"
+            "This window isn't needed for that; Ctrl+Alt+K still stops any mouse/keyboard control.\n\n"
+            f"Updated: {where}")
 
     def ask_api_key(self) -> None:
         key, ok = QInputDialog.getText(

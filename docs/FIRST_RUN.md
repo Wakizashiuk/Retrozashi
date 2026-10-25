@@ -1,7 +1,8 @@
 # First run: controllers + upscaling for every emulator
 
-A checklist for your first sessions with Retrozashi. Say each 🗣️ line (**Ctrl+Alt+Space** to talk,
-press again to stop) or type it in the Chat tab. **Ctrl+Alt+K stops everything instantly.**
+A checklist for your first sessions with Retrozashi. Type each 🗣️ line in a **Claude desktop app** chat,
+which needs no API key (see the shared setup). If you set up an API key instead, use Retrozashi's own Chat tab
+or push-to-talk. **Ctrl+Alt+K stops all mouse and keyboard control instantly** either way.
 
 Do the [shared setup](#0-shared-setup-once) once, then the sections for the emulators you use, in any
 order. Each takes about 15–30 minutes the first time and is a single sentence after that.
@@ -20,9 +21,14 @@ order. Each takes about 15–30 minutes the first time and is a single sentence 
 
 ## 0. Shared setup (once)
 
-- [ ] **Get the app.** Download `Retrozashi-win64` from the latest CI run's *Artifacts*, unzip it and run
-      `Retrozashi\Retrozashi.exe`. Paste your Anthropic API key when asked; it's saved in Windows
-      Credential Manager. SmartScreen may warn about an unsigned app: *More info → Run anyway*.
+- [ ] **Get the app.** Download the latest zip from
+      [Releases](https://github.com/Wakizashiuk/Retrozashi/releases), unzip it and run `Retrozashi\Retrozashi.exe`.
+      SmartScreen may warn about an unsigned app: *More info → Run anyway*.
+- [ ] **Choose how to talk to it.** On first launch pick **Use the Claude app**. It's included in your Claude
+      Pro/Max plan, with no API key and nothing extra to pay. Then fully quit and reopen the Claude desktop app.
+      From then on, you say every 🗣️ line below **in a Claude app chat**, starting with *"Using Retrozashi, …"*,
+      and allow Retrozashi's tools when Claude asks. (Prefer chat and voice in Retrozashi's own window? Choose
+      *Enter an API key* instead. That's billed per use by Anthropic.)
 - [ ] **Controllers:** connect them *before* opening an emulator. Most emulators only detect pads at launch.
 - [ ] **Steam:** close it, or turn off Steam Input for your DualSense/DS4 and 8BitDo. Otherwise you get
       doubled or missing inputs in every emulator.

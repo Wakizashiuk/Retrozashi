@@ -17,6 +17,14 @@ Claude Computer Use (screenshots + mouse/keyboard) for everything else.
 
 **Kill switch: `Ctrl+Alt+K`** halts all automated mouse and keyboard input immediately, even over fullscreen games.
 
+## Use it with the Claude app (no API key)
+
+Have Claude **Pro or Max**? Run Retrozashi once and choose **Use the Claude app**, or run
+`Retrozashi.exe --install-claude-app`. It adds itself as a tool server (MCP) to the **Claude desktop app**. Then
+just ask Claude there: *"Using Retrozashi, set Eden to 2x resolution"*. There's no API key and no per-use
+billing; it's covered by your Claude plan. An API key is only needed for chat and voice inside Retrozashi's
+own window.
+
 ## Get the .exe
 
 **Download the latest version from [Releases](https://github.com/Wakizashiuk/Retrozashi/releases)**
