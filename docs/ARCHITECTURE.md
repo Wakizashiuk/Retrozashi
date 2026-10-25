@@ -228,6 +228,25 @@ so config writes come first and computer use is the fallback.
   Pro Controller). The guide covers Steam Input conflicts and 8BitDo modes. Diffs also cover
   `config/input/*.ini` profiles.
 
+### Claude desktop app mode (`mcp_server.py`, `claude_app.py`)
+
+`Retrozashi.exe --mcp` is a stdio MCP server, so users on a Claude Pro/Max plan need no API key. The Claude
+desktop app runs the agent loop, and Retrozashi only executes tools.
+- **Protocol:** a dependency-free JSON-RPC 2.0 implementation (`initialize` with version negotiation,
+  `tools/list`, `tools/call`, `ping`; notifications ignored). The system prompt is sent as the server
+  `instructions`.
+- **Tools:** every native tool (config, per-game, guides, profiles, controller sets, Vibepollo, UIA), plus
+  computer tools (`screenshot`, `zoom`, `click`, `drag`, `scroll`, `type_text`, `press_keys`…) mapped onto
+  the same `ActionExecutor`. Clamping, the stale-frame guard and the Ctrl+Alt+K kill switch all apply.
+  After a halt, computer tools refuse until Claude calls `resume_control` with the user's consent, and
+  Claude Desktop asks the user to approve tool calls.
+- **Closing emulators:** asks through a native Windows Yes/No box, since there's no Qt in this mode.
+- **Windowed exe:** `sys.stdin`/`stdout` are `None` even when the Claude app passes pipes, so the inherited
+  OS handles are opened directly, and stray prints are diverted to stderr. CI checks this with a real
+  handshake against the packaged exe.
+- **Install:** `claude_app.install()` merges `mcpServers.retrozashi` into `claude_desktop_config.json`
+  (installer and Microsoft Store builds), keeping other servers and making a backup.
+
 ### Streaming: Moonlight + Vibepollo (`controller_sets.py`, `streaming.py`, `desktop/pads.py`)
 
 The user plays through Moonlight with Vibepollo, a Sunshine-family host, and uses Retrozashi only

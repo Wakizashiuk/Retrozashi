@@ -28,6 +28,25 @@ $failed = (Get-Content $report | ConvertFrom-Json).PSObject.Properties |
     Where-Object { $_.Value -like "FAIL*" -and -not ($NoVoice -and $_.Name -eq "voice") }
 if ($failed) { throw "Self-test failed: $($failed.Name -join ', ')" }
 
+Write-Host "==> MCP handshake with the windowed exe (as the Claude desktop app runs it)" -ForegroundColor Cyan
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = (Resolve-Path "dist\Retrozashi\Retrozashi.exe").Path
+$psi.Arguments = "--mcp"
+$psi.UseShellExecute = $false
+$psi.RedirectStandardInput = $true
+$psi.RedirectStandardOutput = $true
+$mcp = [System.Diagnostics.Process]::Start($psi)
+$mcp.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci"}}}')
+$mcp.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+$mcp.StandardInput.Close()
+$reply = $mcp.StandardOutput.ReadToEnd()
+if (-not $mcp.WaitForExit(60000)) { $mcp.Kill(); throw "MCP server did not exit" }
+$lines = $reply -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json }
+if ($lines.Count -ne 2 -or $lines[0].result.serverInfo.name -ne "retrozashi" -or $lines[1].result.tools.Count -lt 20) {
+    throw "MCP handshake failed: $reply"
+}
+Write-Host "MCP OK: $($lines[1].result.tools.Count) tools"
+
 Write-Host "==> Zipping" -ForegroundColor Cyan
 Compress-Archive -Path "dist\Retrozashi" -DestinationPath "dist\Retrozashi-win64.zip" -Force
 $size = "{0:N0} MB" -f ((Get-Item "dist\Retrozashi-win64.zip").Length / 1MB)

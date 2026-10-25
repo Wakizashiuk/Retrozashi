@@ -67,6 +67,10 @@ Each phase ends with something you can run and use.
   detached worker), installed by an elevated one-off helper.
 - [ ] Confirm Vibepollo's virtual pad IDs (and its optional own gamepad driver) on the user's PC.
 
+## Phase 4d: No API key needed
+- [x] MCP server mode for the Claude desktop app (`--mcp`), one-click install, first-run choice.
+- [ ] Voice in Claude-app mode (the Claude app's own dictation covers it for now).
+
 ## Phase 5: Ship it
 - [x] PyInstaller one-folder build (`packaging/Retrozashi.spec`, `scripts/build.ps1`), self-tested and zipped by CI.
 - [x] API key in Windows Credential Manager (`keyring`), with a first-run prompt and a 🔑 button.

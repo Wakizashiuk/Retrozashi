@@ -2,6 +2,8 @@
 
     Retrozashi.exe                      normal start
     Retrozashi.exe --self-test out.json check the bundle (imports, Qt, capture, UIA, voice, keyring) and exit
+    Retrozashi.exe --mcp                MCP server for the Claude desktop app (stdio; no API key needed)
+    Retrozashi.exe --install-claude-app add Retrozashi to the Claude desktop app's MCP servers
     Retrozashi.exe --sync-controllers   Vibepollo prep command: start a background controller sync, return
     Retrozashi.exe --install-stream-sync <sunshine.conf> <command>   (elevated helper) add the prep command
 """
@@ -108,6 +110,16 @@ def headless(argv: list[str]) -> int | None:
     """Command-line modes that never open a window. None = not a headless invocation."""
     if len(argv) >= 3 and argv[1] == "--self-test":
         return self_test(argv[2])
+    if len(argv) >= 2 and argv[1] == "--mcp":
+        from .config import Settings
+        from .core.runtime import Runtime
+        from .mcp_server import run_stdio
+        return run_stdio(lambda: Runtime(Settings.load()), setup_logging=_setup_logging)
+    if len(argv) >= 2 and argv[1] == "--install-claude-app":
+        from .claude_app import install
+        for r in install():
+            print(f"Added Retrozashi to {r['config']}. Restart the Claude app to load it.")
+        return 0
     if len(argv) >= 2 and argv[1] == "--sync-controllers":
         from .streaming import start_background_sync
         start_background_sync()
@@ -189,7 +201,7 @@ def main() -> int:
     runtime.start()
     window.show()
     if get_api_key() is None:
-        QTimer.singleShot(0, window.ask_api_key)  # first run: ask once the window is up
+        QTimer.singleShot(0, window.first_run)  # first run: Claude app or API key, once the window is up
     return app.exec()
 
 
