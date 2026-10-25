@@ -10,9 +10,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def app():
     return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+
+def dispose(widget, app):
+    """Delete Qt widgets while the QApplication is alive, never later from the garbage collector."""
+    widget.close()
+    widget.deleteLater()
+    app.processEvents()
 
 
 @pytest.fixture
@@ -33,6 +40,8 @@ def test_main_window_builds(app, runtime):
     window._set_status("acting")
     assert window.status.text() == "CONTROLLING INPUT"
     assert window.profiles_panel.list.count() == 0
+    assert runtime.native.confirm is not None
+    dispose(window, app)
 
 
 def test_profile_editor_round_trip(app, runtime):
@@ -52,3 +61,5 @@ def test_profile_editor_round_trip(app, runtime):
     runtime.profiles.save(saved)
     panel = ProfilesPanel(runtime.profiles, runtime.registry)
     assert panel.list.count() == 1 and "GT4" in panel.list.item(0).text()
+    dispose(editor, app)
+    dispose(panel, app)

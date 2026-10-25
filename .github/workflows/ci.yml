@@ -29,6 +29,8 @@ jobs:
             pip install -e ".[dev]"
           fi
       - name: Test
+        env:
+          PYTHONFAULTHANDLER: "1"   # if the interpreter ever crashes (e.g. at shutdown), print where
         run: python -m pytest -v
 
   build-exe:

@@ -5,6 +5,7 @@ import base64
 import html
 import threading
 import time
+import weakref
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QPixmap
@@ -50,7 +51,10 @@ class MainWindow(QMainWindow):
         runtime.bus.subscribe(self.bridge.event.emit)
         self.bridge.question.connect(self._answer_question)
         if runtime.settings.safety.confirm_close_emulator:
-            runtime.native.confirm = self.ask_from_worker
+            # Weak: a strong runtime -> window reference makes a cycle, and the cyclic GC may then
+            # destroy this widget at an arbitrary time, even after QApplication is gone.
+            ask = weakref.WeakMethod(self.ask_from_worker)
+            runtime.native.confirm = lambda text: (m := ask()) is not None and m(text)
 
         self.setWindowTitle("Retrozashi")
         self.resize(1200, 760)
