@@ -180,7 +180,8 @@ To add an app, subclass `IniEmulator` (or `EmulatorAdapter`), fill in `process_n
 | Mid-response abort | Streaming loop checks the flag each event |
 | Stuck-input cleanup | On trip, held keys and mouse buttons are released |
 | Scope | Single target monitor, clamped coordinates, own window hidden from capture |
-| Reversibility | Every config write leaves a `.bak` |
+| Reversibility | Every config write leaves a `<file>.<timestamp>.bak` first. **Undo** button reverts the last request's changes; Claude can list/restore backups (only the emulator's own) |
+| Settle detection | Screenshots after an action wait (≤1.5 s) until the screen stops changing, so Claude doesn't judge a half-drawn dialog |
 | Prompt guardrails | System prompt forbids browsers, email, banking, deletion and system settings |
 | Iteration cap | `max_iterations` (default 40) bounds cost and runaway loops |
 

@@ -20,6 +20,7 @@ screenshot whenever the window changes, moves, or you get a "take a screenshot f
 3. Config files are overwritten by a running emulator on exit. If set_emulator_setting \
 reports the emulator is running, either close it with close_emulator (when nothing is being \
 played) or make the change through the emulator's GUI instead.
+3b. If the user asks to undo or revert, use list_config_backups / restore_config_backup.
 4. Verify every change: re-read the config after writing it, or take a screenshot after \
 GUI actions and confirm the expected state before reporting success.
 5. Screenshots show one monitor, or one window after focus_emulator_window. Coordinates are in \

@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from ..desktop.screen import ScreenCapture, WindowTarget
 from ..desktop.uia import ACTIONS, UiaController, UiaError
+from ..emulators.backups import original_of
 from ..emulators.base import EmulatorBusy
 from ..emulators.registry import EmulatorRegistry
 
@@ -37,6 +39,13 @@ NATIVE_TOOLS: list[dict[str, Any]] = [
           "because it would overwrite the change on exit; close it first or use the GUI instead.",
           {"emulator": _EMU, "section": {"type": "string"}, "key": {"type": "string"},
            "value": {"type": "string", "description": "New value exactly as it should appear in the file"}}),
+    _tool("list_config_backups",
+          "List an emulator's config backups (one is made before every write), newest first.",
+          {"emulator": _EMU}),
+    _tool("restore_config_backup",
+          "Undo config changes by restoring a backup from list_config_backups ('' = the newest). The current "
+          "file is backed up first, so a restore can itself be undone. Fails while the emulator runs.",
+          {"emulator": _EMU, "backup": {"type": "string", "description": "Full backup path, or '' for newest"}}),
     _tool("launch_emulator",
           "Start an emulator, optionally booting a game. Use '' for game_path to open just the frontend.",
           {"emulator": _EMU, "game_path": {"type": "string"}, "fullscreen": {"type": "boolean"}}),
@@ -76,6 +85,23 @@ class NativeTools:
         self.uia = uia
         self.screen = screen
         self._window_api = window_api  # (list_windows, focus_window); win32 by default
+        # One entry per user request: the backups its config writes made. Drives the Undo button.
+        self.journal: list[list[tuple[str, Path]]] = []
+
+    def begin_run(self) -> None:
+        self.journal.append([])
+
+    def undo_last_run(self) -> list[dict[str, Any]]:
+        """Restore each file the latest request changed to its state before that request."""
+        while self.journal and not self.journal[-1]:
+            self.journal.pop()
+        if not self.journal:
+            return []
+        run = self.journal.pop()
+        earliest: dict[Path, tuple[str, Path]] = {}
+        for emulator, bak in run:  # recorded oldest first: keep the first backup per file
+            earliest.setdefault(original_of(bak), (emulator, bak))
+        return [self.registry.get(emu).restore_backup(bak) for emu, bak in earliest.values()]
 
     def _focus(self, emulator: str, title_contains: str) -> Any:
         if self.screen is None:
@@ -117,6 +143,15 @@ class NativeTools:
                     out = "No config file found (launch the emulator once to create it)."
             elif name == "set_emulator_setting":
                 out = self.registry.get(inp["emulator"]).set_setting(inp["section"], inp["key"], inp["value"])
+                if out.get("backup"):
+                    if not self.journal:
+                        self.begin_run()
+                    self.journal[-1].append((self.registry.get(inp["emulator"]).id, Path(out["backup"])))
+            elif name == "list_config_backups":
+                baks = self.registry.get(inp["emulator"]).list_backups()[:20]
+                out = [{"backup": str(b), "file": original_of(b).name} for b in baks] or "No backups yet."
+            elif name == "restore_config_backup":
+                out = self.registry.get(inp["emulator"]).restore_backup(Path(inp["backup"]) if inp.get("backup") else None)
             elif name == "launch_emulator":
                 pid = self.registry.get(inp["emulator"]).launch(inp.get("game_path") or None,
                                                                 bool(inp.get("fullscreen")))

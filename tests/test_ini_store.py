@@ -11,7 +11,7 @@ def test_get_set_preserves_case_and_newlines(tmp_path):
     assert doc.set("EmuCore/GS", "upscale_multiplier", "6") == "1"
     assert doc.set("EmuCore/GS", "VsyncEnable", "true") is None   # new key appended in-section
     assert doc.set("Pad1", "Type", "DualShock2") is None          # new section appended
-    bak = doc.save(p)
+    bak = doc.save(p, backup=True)
     assert bak and bak.read_bytes() == SAMPLE.encode()
     out = p.read_bytes().decode()
     assert "upscale_multiplier = 6\r\nVsyncEnable = true\r\n\r\n[UI]" in out

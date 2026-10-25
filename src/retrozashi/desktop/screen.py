@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import math
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -82,6 +83,17 @@ class Frame:
     def to_image(self, px: int, py: int) -> tuple[int, int]:
         """Physical coords -> Claude image coords (used for cursor_position)."""
         return round((px - self.source.left) * self.scale), round((py - self.source.top) * self.scale)
+
+
+def frame_difference(a: bytes, b: bytes) -> float:
+    """Mean absolute difference of two equal-size grayscale buffers, 0.0 (identical) .. 1.0."""
+    if len(a) != len(b) or not a:
+        return 1.0
+    return sum(abs(x - y) for x, y in zip(a, b)) / (255 * len(a))
+
+
+# A blinking caret or a hover highlight stays under this; a dialog opening or a page change doesn't.
+SETTLE_THRESHOLD = 0.003
 
 
 def _encode(raw_rgb: bytes, size: tuple[int, int], out_size: tuple[int, int]) -> bytes:
@@ -167,6 +179,32 @@ class ScreenCapture:
     def capture(self) -> Frame:
         self.last = self._grab(self.target_rect(), self.max_long_edge)
         return self.last
+
+    def _thumbnail(self, rect: Rect) -> bytes:
+        """1/16-scale grayscale grab: cheap enough to poll several times a second."""
+        import mss
+        from PIL import Image
+
+        with mss.mss() as sct:
+            shot = sct.grab({"left": rect.left, "top": rect.top, "width": rect.width, "height": rect.height})
+        img = Image.frombytes("RGB", (shot.width, shot.height), shot.rgb).convert("L")
+        return img.resize((max(1, shot.width // 16), max(1, shot.height // 16))).tobytes()
+
+    def wait_until_stable(self, sleep: Callable[[float], None], timeout: float = 1.5,
+                          interval: float = 0.12) -> bool:
+        """Poll until two consecutive thumbnails match, so the screenshot shows the result of the
+        last action rather than a half-drawn dialog. False if still changing at `timeout`
+        (a running game or video never settles; that's fine, we capture anyway)."""
+        rect = self.target_rect()
+        deadline = time.monotonic() + timeout
+        prev = self._thumbnail(rect)
+        while time.monotonic() < deadline:
+            sleep(interval)
+            cur = self._thumbnail(rect)
+            if frame_difference(prev, cur) <= SETTLE_THRESHOLD:
+                return True
+            prev = cur
+        return False
 
     def zoom(self, region: list[int]) -> bytes:
         """`region` is [x0, y0, x1, y1] in the last screenshot's coordinates. Returns a higher-detail

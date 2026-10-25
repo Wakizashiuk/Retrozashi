@@ -12,6 +12,7 @@ refusal_fallback = true
 [safety]
 kill_hotkey = "ctrl+alt+k"
 action_delay = 0.15        # seconds between actions, so you can follow along
+settle_timeout = 1.5       # max wait for the screen to stop changing before a screenshot (0 = off)
 
 [voice]
 enabled = true

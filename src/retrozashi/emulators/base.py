@@ -17,6 +17,8 @@ from typing import Any
 
 import psutil
 
+from . import backups
+
 
 @dataclass(frozen=True)
 class KnownSetting:
@@ -106,15 +108,48 @@ class EmulatorAdapter(ABC):
     @abstractmethod
     def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None: ...
 
-    def set_setting(self, section: str, key: str, value: str) -> dict[str, Any]:
+    def target_file(self, section: str) -> Path | None:
+        """The file a write to `section` lands in (multi-file emulators override this)."""
+        return self.config_path()
+
+    def config_files(self) -> list[Path]:
+        """Every file this adapter may write: what backups and undo cover."""
+        path = self.config_path()
+        return [path] if path else []
+
+    def _ensure_closed(self) -> None:
         if self.is_running():
             raise EmulatorBusy(f"{self.display_name} is running and would overwrite the change on exit. "
                                "Close it first (close_emulator), or change the setting through its GUI.")
-        path = self.config_path()
+
+    def set_setting(self, section: str, key: str, value: str) -> dict[str, Any]:
+        self._ensure_closed()
+        path = self.target_file(section)
         if path is None:
             raise FileNotFoundError(f"No {self.display_name} config file found. Launch it once so it creates one.")
+        bak = backups.backup_file(path) if path.exists() else None
         old = self._write_setting(path, section, key, value)
-        return {"file": str(path), "section": section, "key": key, "old": old, "new": value}
+        return {"file": str(path), "section": section, "key": key, "old": old, "new": value,
+                "backup": str(bak) if bak else None}
+
+    def list_backups(self) -> list[Path]:
+        """All backups for this emulator's config files, newest first."""
+        found = [b for f in self.config_files() for b in backups.backups_for(f)]
+        return sorted(found, key=lambda p: p.name.rsplit(".", 2)[-2], reverse=True)
+
+    def restore_backup(self, backup: Path | None = None) -> dict[str, Any]:
+        """Restore `backup` (default: the newest). Only this adapter's own backups are accepted."""
+        self._ensure_closed()
+        known = self.list_backups()
+        if not known:
+            raise FileNotFoundError(f"No {self.display_name} backups found.")
+        if backup is None:
+            backup = known[0]
+        elif Path(backup) not in known:
+            raise ValueError(f"{backup} is not a {self.display_name} config backup")
+        snapshot = backups.restore(Path(backup))
+        return {"restored": str(backups.original_of(Path(backup))), "from": str(backup),
+                "previous_state_saved_as": str(snapshot) if snapshot else None}
 
     def describe(self) -> dict[str, Any]:
         exe = self.find_exe()
@@ -145,7 +180,7 @@ class IniEmulator(EmulatorAdapter):
     def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None:
         from .ini_store import IniDocument
 
-        doc = IniDocument.load(path)
+        doc = IniDocument.load(path) if path.exists() else IniDocument()
         old = doc.set(section, key, value)
         doc.save(path)
         return old

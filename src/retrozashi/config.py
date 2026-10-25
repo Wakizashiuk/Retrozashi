@@ -33,6 +33,8 @@ class SafetySettings:
     confirm_config_writes: bool = False
     # Seconds to pause between batched computer actions so you can see what is happening.
     action_delay: float = 0.15
+    # Before a screenshot that follows an action, wait up to this long for the screen to stop changing.
+    settle_timeout: float = 1.5
 
 
 @dataclass

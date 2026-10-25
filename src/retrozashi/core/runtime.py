@@ -24,11 +24,12 @@ class Runtime:
         self.bus = EventBus()
         self.kill = KillSwitch(self.bus)
         self.screen = ScreenCapture(settings.target_monitor)
-        self.executor = ActionExecutor(self.screen, self.kill, action_delay=settings.safety.action_delay)
+        self.executor = ActionExecutor(self.screen, self.kill, action_delay=settings.safety.action_delay,
+                                       settle_timeout=settings.safety.settle_timeout)
         self.registry = EmulatorRegistry(settings.emulator_paths)
         self.uia = UiaController(self.registry, self.kill) if uia_available() else None
-        self.agent = AgentLoop(settings.agent, self.bus, self.kill, self.executor,
-                               NativeTools(self.registry, self.uia, self.screen))
+        self.native = NativeTools(self.registry, self.uia, self.screen)
+        self.agent = AgentLoop(settings.agent, self.bus, self.kill, self.executor, self.native)
         self._jobs: queue.Queue = queue.Queue()
         self._worker = threading.Thread(target=self._work, name="AgentWorker", daemon=True)
         self.busy = False
@@ -49,6 +50,21 @@ class Runtime:
     def set_monitor(self, index: int) -> None:
         self.screen.set_monitor(index)
 
+    def undo_last(self) -> None:
+        """Revert every config file the most recent request changed (no API call)."""
+        if self.busy:
+            self.bus.publish(EventKind.ERROR, "Halt or wait for the current request before undoing.")
+            return
+        try:
+            restored = self.native.undo_last_run()
+        except Exception as e:  # EmulatorBusy, missing files ...
+            self.bus.publish(EventKind.ERROR, f"Undo failed: {e}")
+            return
+        if not restored:
+            self.bus.publish(EventKind.ERROR, "Nothing to undo: no config changes recorded this session.")
+        for r in restored:
+            self.bus.publish(EventKind.TOOL, f"Undo: restored {r['restored']}", ok=True)
+
     def shutdown(self) -> None:
         self.kill.trip("Shutting down")
         self.kill.disarm()
@@ -57,6 +73,7 @@ class Runtime:
     def _work(self) -> None:
         while (job := self._jobs.get()) is not _STOP:
             self.busy = True
+            self.native.begin_run()
             try:
                 self.agent.run(job)
             finally:

@@ -7,9 +7,9 @@ edits lines in place and only touches the exact lines it changes.
 from __future__ import annotations
 
 import re
-import shutil
-import time
 from pathlib import Path
+
+from .backups import backup_file
 
 _SECTION = re.compile(r"^\s*\[(?P<name>[^\]]+)\]\s*$")
 _KEYVAL = re.compile(r"^(?P<key>[^=;#\[][^=]*?)\s*=\s?(?P<value>.*)$")
@@ -25,12 +25,9 @@ class IniDocument:
         # read_bytes, not read_text: universal-newline decoding would hide the file's CRLFs
         return cls(path.read_bytes().decode("utf-8-sig", errors="replace"))
 
-    def save(self, path: Path, backup: bool = True) -> Path | None:
+    def save(self, path: Path, backup: bool = False) -> Path | None:
         """Writes atomically. Returns the backup path, if one was made."""
-        bak = None
-        if backup and path.exists():
-            bak = path.with_suffix(path.suffix + f".{time.strftime('%Y%m%d-%H%M%S')}.bak")
-            shutil.copy2(path, bak)
+        bak = backup_file(path) if backup and path.exists() else None
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(self.newline.join(self.lines) + self.newline, encoding="utf-8", newline="")
         tmp.replace(path)

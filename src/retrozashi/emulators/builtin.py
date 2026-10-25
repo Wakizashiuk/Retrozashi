@@ -3,8 +3,6 @@ emulator releases, so the agent always reads the live file first and can fall ba
 """
 from __future__ import annotations
 
-import shutil
-import time
 from pathlib import Path
 from typing import Any
 
@@ -117,12 +115,14 @@ class Dolphin(IniEmulator):
                     out[name] = doc.section(s)
         return out
 
+    def target_file(self, section: str) -> Path | None:
+        return self.config_dir() / self._split(section)[0]
+
+    def config_files(self) -> list[Path]:
+        return [self.config_dir() / f for f in ("Dolphin.ini", "GFX.ini", "GCPadNew.ini")]
+
     def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None:
-        file, sec = self._split(section)
-        target = self.config_dir() / file
-        if not target.exists():
-            target.write_text("", encoding="utf-8")
-        return super()._write_setting(target, sec, key, value)
+        return super()._write_setting(path, self._split(section)[1], key, value)
 
     def launch_args(self, game: str | None, fullscreen: bool) -> list[str]:
         return ["-b", "-e", game] if game else []
@@ -159,7 +159,6 @@ class RPCS3(EmulatorAdapter):
         node = data.setdefault(section, {})
         old = node.get(key)
         node[key] = yaml.safe_load(value) if value.strip() else value  # "300" -> 300, "true" -> True
-        shutil.copy2(path, path.with_suffix(f".yml.{time.strftime('%Y%m%d-%H%M%S')}.bak"))
         path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
         return None if old is None else str(old)
 
@@ -189,7 +188,7 @@ class Eden(IniEmulator):
     def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None:
         from .ini_store import IniDocument
 
-        doc = IniDocument.load(path)
+        doc = IniDocument.load(path) if path.exists() else IniDocument()
         old = doc.set(section, key, value)
         doc.set(section, f"{key}\\default", "false")
         doc.save(path)

@@ -60,11 +60,13 @@ CLICKS = {
 
 class ActionExecutor:
     def __init__(self, screen: ScreenCapture, kill: KillSwitch, backend: InputBackend | None = None,
-                 action_delay: float = 0.15) -> None:
+                 action_delay: float = 0.15, settle_timeout: float = 0.0) -> None:
         self.screen = screen
         self.kill = kill
         self.io: InputBackend = backend or Win32Backend()
         self.action_delay = action_delay
+        self.settle_timeout = settle_timeout
+        self._dirty = False  # an input action happened since the last screenshot
         self._held_keys: set[int] = set()
         self._held_buttons: set[str] = set()
         kill.on_trip(self.release_all)
@@ -77,7 +79,8 @@ class ActionExecutor:
             raise ActionError(f"Unsupported computer action: {member}")
         result = handler(inp)
         if member not in ("screenshot", "zoom", "cursor_position", "wait"):
-            self.kill.wait(self.action_delay)  # settle time; also lets you see each step
+            self._dirty = True
+            self.kill.wait(self.action_delay)  # lets you follow each step
         return result
 
     def release_all(self) -> None:
@@ -133,12 +136,23 @@ class ActionExecutor:
 
     # ---- members ------------------------------------------------------------
     def _do_screenshot(self, inp: dict[str, Any]) -> ActionResult:
+        note: list[dict[str, Any]] = []
+        if self._dirty and self.settle_timeout > 0:
+            self._dirty = False
+            try:
+                if not self.screen.wait_until_stable(self.kill.wait, self.settle_timeout):
+                    note = _text("Screen was still changing when captured (animation or loading); "
+                                 "take another screenshot if something looks mid-transition.")
+            except CaptureTargetLost:
+                pass  # handled by the capture below
         try:
             frame = self.screen.capture()
         except CaptureTargetLost as e:  # window gone: fall back to the monitor and tell Claude
             frame = self.screen.capture()
             return ActionResult(_text(str(e)) + _image(frame.png), "Target window lost; monitor screenshot")
-        return ActionResult(_image(frame.png), f"Screenshot {frame.width}x{frame.height} of {self.screen.describe_target()}")
+        return ActionResult(note + _image(frame.png),
+                            f"Screenshot {frame.width}x{frame.height} of {self.screen.describe_target()}"
+                            + (" (still changing)" if note else ""))
 
     def _do_zoom(self, inp: dict[str, Any]) -> ActionResult:
         return ActionResult(_image(self.screen.zoom(inp["region"])), f"Zoom {inp['region']}")

@@ -28,10 +28,11 @@ Each phase ends with something you can run and use.
 - [x] **UI Automation tier.** `ui_list_controls` / `ui_act` operate Qt dialogs by control name, scoped to emulator processes.
 - **UIA on real builds.** Check which PCSX2/DuckStation/Eden/Dolphin controls expose useful names; add
   `automation_id` hints to adapters for the key dialogs (graphics, controllers).
-- **Settle detection.** After each action, wait until two consecutive frames match (or 1.5 s) before
-  the next screenshot. Fewer "clicked before it rendered" mistakes.
+- [x] **Settle detection.** Before a screenshot that follows an action, poll 1/16-scale thumbnails until two match
+  (≤1.5 s). If the screen never settles (a running game), Claude gets a "still changing" note.
 - **Confirmation mode.** `confirm_config_writes = true` shows a diff dialog before any write.
-- **Undo.** A `restore_backup(emulator)` tool and a UI button for the latest `.bak`.
+- [x] **Undo.** `list_config_backups` / `restore_config_backup` tools, plus an Undo button that reverts every file
+  the last request changed (no API call). Backups use microsecond timestamps; restores are undoable too.
 - Long sessions: enable server-side compaction (`compact-2026-01-12` beta) when history gets large.
 
 ## Phase 3: Voice & UX polish (1 week)
