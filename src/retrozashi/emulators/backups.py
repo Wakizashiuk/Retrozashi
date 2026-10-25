@@ -25,6 +25,11 @@ def backup_file(path: Path) -> Path:
     return bak
 
 
+def stamp_of(bak: Path) -> str:
+    """Sort key: `PCSX2.ini.20261025-101500-123456-001.bak` -> `20261025-101500-123456-001`."""
+    return bak.name[: -len(SUFFIX)].rsplit(".", 1)[1]
+
+
 def original_of(bak: Path) -> Path:
     """`PCSX2.ini.20261025-101500-123456.bak` -> `PCSX2.ini`."""
     return bak.with_name(bak.name[: -len(SUFFIX)].rsplit(".", 1)[0])
@@ -35,7 +40,7 @@ def backups_for(path: Path) -> list[Path]:
     if not path.parent.exists():
         return []
     found = [p for p in path.parent.glob(f"{path.name}.*{SUFFIX}") if original_of(p) == path]
-    return sorted(found, key=lambda p: p.name, reverse=True)
+    return sorted(found, key=stamp_of, reverse=True)
 
 
 def restore(bak: Path) -> Path | None:

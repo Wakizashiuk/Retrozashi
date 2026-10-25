@@ -135,7 +135,7 @@ class EmulatorAdapter(ABC):
     def list_backups(self) -> list[Path]:
         """All backups for this emulator's config files, newest first."""
         found = [b for f in self.config_files() for b in backups.backups_for(f)]
-        return sorted(found, key=lambda p: p.name.rsplit(".", 2)[-2], reverse=True)
+        return sorted(found, key=backups.stamp_of, reverse=True)
 
     def restore_backup(self, backup: Path | None = None) -> dict[str, Any]:
         """Restore `backup` (default: the newest). Only this adapter's own backups are accepted."""
