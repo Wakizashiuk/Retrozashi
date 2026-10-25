@@ -41,6 +41,7 @@ python -m retrozashi   # asks for your API key on first run (or set $env:ANTHROP
 Optional: copy `settings.example.toml` to `%APPDATA%\Retrozashi\settings.toml` and adjust it.
 
 ## Docs
+- **[Eden first run](docs/EDEN_FIRST_RUN.md)**: step-by-step checklist for controllers and upscaling
 - [Architecture](docs/ARCHITECTURE.md): stack, API wiring, context loop, safety model
 - [Roadmap](docs/ROADMAP.md): what's built and what's next
 
