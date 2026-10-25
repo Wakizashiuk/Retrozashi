@@ -13,6 +13,7 @@ order. Each takes about 15–30 minutes the first time and is a single sentence 
 | DuckStation | PS1 | [DuckStation](#duckstation-ps1) |
 | Dolphin | GameCube / Wii | [Dolphin](#dolphin-gamecube--wii) |
 | RPCS3 | PS3 | [RPCS3](#rpcs3-ps3) |
+| RetroArch | Many (via cores) | [RetroArch](#retroarch-many-consoles) |
 
 ---
 
@@ -149,6 +150,42 @@ RPCS3 needs a per-game config created in its own window first. Retrozashi does t
 8BitDo: 🗣️ *"Set up my 8BitDo as player 1 in RPCS3 with the SDL handler."*
 
 ✅ **Test:** sticks, triggers, motion (DualSense handler), and rumble.
+
+---
+
+## RetroArch (many consoles)
+
+RetroArch runs a **core** per console. Settings live in three places: global settings, **core options**
+(per core, where 3D upscaling lives) and **overrides/remaps** (per core or per game). Retrozashi handles
+all three, and reads your **playlists** to know which core each game uses.
+
+**1. Controllers (once for every core)**
+🗣️ *"Set RetroArch's controller driver to sdl2, make sure autoconfig is on, player 1 is my DualSense, and
+L3+R3 opens the menu."*
+8BitDo in X-input mode: 🗣️ *"Use the xinput driver in RetroArch for my 8BitDo."* If a pad isn't
+recognised, it maps it once in Settings → Input → Port 1 Controls and saves a controller profile.
+
+**2. Global video**
+🗣️ *"Set RetroArch to the Vulkan driver, fullscreen, with integer scaling for sharp pixels."*
+
+**3. 3D upscaling per core (core options)**
+Run a game on the core once first, so RetroArch writes that core's options. Then, for example:
+🗣️ *"Set Beetle PSX HW's internal resolution to 4x for all PS1 games."*
+🗣️ *"Set ParaLLEl-RDP upscaling to 4x in Mupen64Plus-Next."* (N64)
+🗣️ *"Set Flycast to 1920x1440 internal resolution."* (Dreamcast)
+If it doesn't know a core's exact values, it changes the option once in Quick Menu → Core Options and
+learns them.
+
+**4. Per-game**
+🗣️ *"List my RetroArch games."* (from your playlists: label, core and ready-made IDs)
+🗣️ *"Set Crash Bandicoot to 8x internal resolution, just for that game."* (a game-level `.opt`)
+🗣️ *"Turn on a CRT shader just for Super Metroid."* (a shader preset saved as a game preset in the
+Quick Menu)
+🗣️ *"For Super Metroid, swap A and B."* (a game remap)
+Games added with core "DETECT" have no core yet. Retrozashi asks which core, or loads the game once.
+
+✅ **Test:** launch a game from RetroArch. Check the pad layout, the menu combo (L3+R3), and that 3D games
+look sharp. Quick Menu → Core Options shows the resolution you set.
 
 ---
 

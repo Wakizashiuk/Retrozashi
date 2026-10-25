@@ -146,7 +146,7 @@ def test_every_emulator_has_guides_and_per_game(pc):
     for emu in run(tools, "list_emulators"):
         assert {"controllers", "upscaling", "per_game"} <= set(emu["guides"]), emu["id"]
         assert emu["per_game"] is True, emu["id"]
-        assert emu["config_file"] or emu["id"] == "eden", emu["id"]  # Eden isn't installed in this fixture
+        assert emu["config_file"] or emu["id"] in ("eden", "retroarch"), emu["id"]  # not installed in this fixture
         guide = run(tools, "emulator_guide", emulator=emu["id"], topic="controllers")
         assert "Steam Input" in guide and "8BitDo" in guide
 

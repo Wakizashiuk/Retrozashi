@@ -197,11 +197,22 @@ reads, writes, backups, Undo, search and diffs all work per game without special
 | Dolphin | `User/GameSettings/<ID>.ini` (sections `Video_Settings`, `Core`…) | `GM4E01` | 6 bytes of the disc header (.iso/.gcm; .wbfs at 0x200) |
 | RPCS3 | `config/custom_configs/config_<SERIAL>.yml` (created in the GUI first) | `BLUS30443` | RPCS3's own `games.yml` |
 | Eden | `config/custom/<TitleID>.ini` (+ `\use_global=false`) | `0100…` (16 hex) | Title ID in the file name |
+| RetroArch | `config/<Core>/<Game>.cfg` (override), `.opt` (core options), `remaps/<Core>/<Game>.rmp` | `Beetle PSX HW/Crash Bandicoot (USA)` + ` [options]`/` [remap]`; core-wide: `Beetle PSX HW` | Playlists (`.lpl` JSON) + `info/*.info` corename |
 
 `discs.py` reads ISO9660 directly (2048-byte and raw Mode 1/Mode 2 sectors) to find SYSTEM.CNF.
 Compressed images (.chd, .cso, .rvz…) return no ID, and the per_game guide says where the emulator
 shows it instead. Saved input profiles (PCSX2/DuckStation `inputprofiles/`, Dolphin `Profiles/GCPad|Wiimote`,
 RPCS3 `input_configs/`, Eden `input/`) are covered by search and diffs.
+
+### RetroArch
+
+Everything is flat `key = "value"` files (`cfg_store.py` keeps quoting, comments and CRLF). The section
+argument is ignored. Three per-game file kinds come from one `game_id` grammar: overrides
+(partial `retroarch.cfg`), **core options** (`.opt`, where 3D cores keep internal resolution) and remaps.
+Paths like `:\config` are relative to the RetroArch folder. `list_games` maps each playlist entry's core
+DLL to its library name through `info/*.info`, falling back to the playlist's default core for `DETECT`.
+Launching passes `-L <core>` from the playlist. Menus are drawn by RetroArch, not Windows controls,
+so config writes come first and computer use is the fallback.
 
 ### Eden (Switch)
 

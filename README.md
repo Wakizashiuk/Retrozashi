@@ -1,7 +1,7 @@
 # Retrozashi 🎮
 
 Talk to your emulators. Retrozashi is a Windows desktop agent that configures and controls
-PCSX2, DuckStation, RPCS3, Dolphin and Eden from voice or text. It edits config files
+PCSX2, DuckStation, RPCS3, Dolphin, Eden and RetroArch from voice or text. It edits config files
 directly when it can, operates dialogs through Windows UI Automation next, and falls back to
 Claude Computer Use (screenshots + mouse/keyboard) for everything else.
 
@@ -41,7 +41,7 @@ python -m retrozashi   # asks for your API key on first run (or set $env:ANTHROP
 Optional: copy `settings.example.toml` to `%APPDATA%\Retrozashi\settings.toml` and adjust it.
 
 ## Docs
-- **[First run](docs/FIRST_RUN.md)**: step-by-step checklists for controllers, upscaling and per-game settings in Eden, PCSX2, DuckStation, Dolphin and RPCS3
+- **[First run](docs/FIRST_RUN.md)**: step-by-step checklists for controllers, upscaling and per-game settings in Eden, PCSX2, DuckStation, Dolphin, RPCS3 and RetroArch
 - [Architecture](docs/ARCHITECTURE.md): stack, API wiring, context loop, safety model
 - [Roadmap](docs/ROADMAP.md): what's built and what's next
 

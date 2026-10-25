@@ -27,8 +27,9 @@ def _tool(name: str, description: str, props: dict[str, Any]) -> dict[str, Any]:
 
 
 _EMU = {"type": "string", "description": "Emulator id from list_emulators, e.g. 'pcsx2'"}
-_GAME = {"type": "string", "description": "Per-game override: the game's ID (Eden: 16-hex title ID), or '' for "
-                                          "the global config"}
+_GAME = {"type": "string", "description": "Per-game override: the game's ID from list_games (Eden: 16-hex title "
+                                          "ID; RetroArch: '<Core>/<Game>' with optional ' [options]' or ' [remap]'), "
+                                          "or '' for the global config"}
 MAX_READ_CHARS = 40_000
 
 NATIVE_TOOLS: list[dict[str, Any]] = [

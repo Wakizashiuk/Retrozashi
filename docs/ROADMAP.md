@@ -55,7 +55,10 @@ Each phase ends with something you can run and use.
   input profiles in diffs, exe search, Yes/No before closing a running emulator.
 - [x] Same per-game + guides treatment for PCSX2, DuckStation, Dolphin, RPCS3 (disc-image ID reading,
   input profiles in search/diff, controllers/upscaling/per_game guides).
+- [x] RetroArch: flat cfg editing, overrides / core options / remaps per core and per game, playlists
+  with core resolution, launch with -L core, controllers/upscaling/per_game guides.
 - [ ] CHD/RVZ/CSO ID reading (needs decompression); PCSX2 ELF CRC computation.
+- [ ] RetroArch network commands (UDP 55355) to change settings while a game runs.
 - [ ] Eden on the user's PC: run the controllers/upscaling guides once, record learned values.
 
 ## Phase 5: Ship it

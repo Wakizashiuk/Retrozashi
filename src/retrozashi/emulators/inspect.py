@@ -39,6 +39,12 @@ def read_flat(path: Path) -> FlatConfig:
             else:
                 out[(str(path), "", str(section))] = str(node)
         return out
+    if path.suffix.lower() in (".cfg", ".opt", ".rmp"):  # RetroArch flat key = "value" files
+        from .cfg_store import CfgDocument
+
+        for key, value in CfgDocument.load(path).items().items():
+            out[(str(path), "", key)] = value
+        return out
     doc = IniDocument.load(path)
     for section in doc.sections():
         for key, value in doc.section(section).items():

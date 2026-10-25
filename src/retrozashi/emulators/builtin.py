@@ -639,4 +639,6 @@ class Eden(IniEmulator):
         return (["-f"] if fullscreen else []) + (["-g", game] if game else [])
 
 
-BUILTIN: dict[str, type[EmulatorAdapter]] = {cls.id: cls for cls in (PCSX2, DuckStation, Dolphin, RPCS3, Eden)}
+from .retroarch import RetroArch  # noqa: E402  (separate module: it's the largest adapter)
+
+BUILTIN: dict[str, type[EmulatorAdapter]] = {cls.id: cls for cls in (PCSX2, DuckStation, Dolphin, RPCS3, Eden, RetroArch)}
