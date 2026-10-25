@@ -3,7 +3,6 @@ emulator releases, so the agent always reads the live file first and can fall ba
 """
 from __future__ import annotations
 
-import copy
 import json
 import re
 from pathlib import Path
@@ -12,31 +11,220 @@ from typing import Any
 import yaml
 
 from .base import IniEmulator, EmulatorAdapter, KnownSetting as K, documents_dir, env_path
+from .discs import normalize_ps_serial, read_gc_wii_id, read_ps_serial
 
 
 def _portable(exe: Path | None, *markers: str) -> bool:
     return bool(exe) and any((exe.parent / m).exists() for m in markers)
 
 
+_V = " (verify with snapshot/diff on this build)"
+
+PAD_PREP = """\
+Before you start (DualSense/DS4 and 8BitDo)
+- Connect the controller before opening the emulator.
+- Steam Input grabs PlayStation and 8BitDo pads and causes doubled or missing inputs: ask the user
+  to close Steam or disable Steam Input for that pad.
+- 8BitDo modes: X-input (Start+X) appears as an Xbox pad; Switch mode (Start+Y) as a Pro Controller.
+  Both work with SDL; keep the same mode once mapped.
+"""
+
+PCSX2_CONTROLLERS = PAD_PREP + """
+Steps (ui_* tools first, computer tools as fallback)
+1. PCSX2 running (launch_emulator pcsx2, game_path ''), focus_emulator_window(pcsx2).
+2. Settings -> Controllers. Under the global options make sure "Enable SDL Input Source" is on, and
+   for DualSense/DS4 "DualShock 4 / DualSense Enhanced Mode" (gives rumble, LEDs, full buttons).
+3. "Controller Port 1" -> type "DualShock 2".
+4. Click "Automatic Mapping" (wand icon) -> pick the pad (e.g. "SDL-0 DualSense Wireless Controller").
+   All buttons, sticks and pressure are mapped.
+5. Optional: save as an input profile (Controllers window -> profile -> New), stored in inputprofiles/.
+6. Close the window (PCSX2 saves immediately). Verify: read_emulator_config(pcsx2, search="Pad1").
+"""
+
+PCSX2_UPSCALING = """\
+Upscaling in PCSX2: [EmuCore/GS] upscale_multiplier. PS2 games render around 448-480 lines, so
+3x = ~1080p, 4x = ~1440p, 6x = ~4K (PCSX2 labels these in Graphics -> Rendering -> Internal Resolution).
+1. If PCSX2 is running, close_emulator(pcsx2) (user confirms) or use Settings -> Graphics in the GUI.
+2. set_emulator_setting(pcsx2, "EmuCore/GS", "upscale_multiplier", "<n>"). Renderer: Vulkan or DX12
+   for high multipliers (enum values: check learned settings or learn by diff).
+3. Useful extras: MaxAnisotropy 16, [EmuCore] EnableWideScreenPatches true (needs patches for the game).
+4. Verify with read_emulator_config(pcsx2, search="upscale").
+Per game: see per_game. Some games show lines/ghosting when upscaled: suggest 'Half-pixel offset'
+or 'Round sprite' fixes in the per-game Graphics -> Upscaling Fixes tab (learn the keys by diff).
+"""
+
+PCSX2_PER_GAME = """\
+PCSX2 per-game settings: gamesettings/<SERIAL>_<CRC>.ini (same sections/keys as PCSX2.ini; they
+override the global values for that game).
+1. list_games(pcsx2, "<name>") reads the serial from the disc image (SYSTEM.CNF). The CRC isn't in the
+   file: if the game already has a per-game file the serial alone is enough; otherwise get the CRC
+   from PCSX2: right-click the game -> Properties (Summary shows Serial and CRC), or create the
+   per-game settings once there.
+2. Use game_id="<SERIAL>_<CRC>" (e.g. SLUS-20984_E2C8A0D8) with read/set/snapshot/diff.
+3. PCSX2 must be closed to write files; otherwise use right-click -> Properties in the GUI.
+"""
+
+DUCK_CONTROLLERS = PAD_PREP + """
+Steps
+1. DuckStation running, focus_emulator_window(duckstation).
+2. Settings -> Controllers. Make sure "Enable SDL Input Source" is on (and "DualShock 4 / DualSense
+   Enhanced Mode" for PlayStation pads).
+3. "Controller Port 1" -> "Analog Controller" (DualShock) for analog games, "Digital Controller" for
+   strict old games.
+4. "Automatic Mapping" -> pick the pad (e.g. "SDL-0"). Check both sticks; turn on Analog mode
+   behaviour ("Force Analog Mode on Reset") if games start in digital mode.
+5. Optional: save an input profile (stored in inputprofiles/). Close the window.
+6. Verify: read_emulator_config(duckstation, search="Pad1").
+"""
+
+DUCK_UPSCALING = """\
+Upscaling in DuckStation: [GPU] ResolutionScale (PS1 renders ~240 lines: 4x ~ 1080p, 6x ~ 1440p,
+9x ~ 4K). Hardware renderer required ([GPU] Renderer = Vulkan/D3D11/D3D12/OpenGL, not Software).
+1. Close DuckStation first (close_emulator asks the user) or use Settings -> Graphics.
+2. set_emulator_setting(duckstation, "GPU", "ResolutionScale", "<n>").
+3. Recommended with upscaling: [GPU] PGXPEnable true (stops polygon wobble/texture warping),
+   [GPU] TrueColor true; widescreen: [GPU] WidescreenHack true + [Display] AspectRatio 16:9.
+4. Verify with read_emulator_config(duckstation, search="ResolutionScale").
+"""
+
+DUCK_PER_GAME = """\
+DuckStation per-game settings: gamesettings/<SERIAL>.ini next to settings.ini (same sections/keys).
+1. list_games(duckstation, "<name>") reads the serial (e.g. SCUS-94163) from .cue/.bin/.iso images.
+   For .chd/.pbp: right-click the game in DuckStation -> Properties shows it.
+2. Use game_id="<SERIAL>" with read/set/snapshot/diff. Close DuckStation first, or use
+   right-click -> Game Properties in the GUI and diff afterwards.
+"""
+
+DOLPHIN_CONTROLLERS = PAD_PREP + """
+GameCube games (Controllers -> Port 1 "Standard Controller" -> Configure)
+1. Dolphin running, focus_emulator_window(dolphin). Open "Controllers" from the toolbar.
+2. GameCube Port 1 = "Standard Controller" -> "Configure".
+3. Device dropdown -> "SDL/0/<pad name>" (e.g. DualSense Wireless Controller). Click "Default" to
+   load the standard layout for that device; if some fields stay empty, click a field and press the
+   button. Sticks: Main Stick = left stick, C-Stick = right stick.
+4. Optional: Profile box -> name -> Save (stored in Config/Profiles/GCPad). Close; then OK.
+Wii games: Controllers -> Wii Remote 1 = "Emulated Wii Remote" -> Configure, same device/Default
+steps (map the pointer to the right stick or motion), or connect a real Wii Remote.
+DualSense motion can drive Wii Remote tilt/point via the Motion Input tab.
+Verify: read_emulator_config(dolphin, search="GCPad1").
+"""
+
+DOLPHIN_UPSCALING = """\
+Upscaling in Dolphin: GFX.ini [Settings] InternalResolution (1 = native 480p, 2 = 720p, 3 = 1080p,
+4 = 1440p, 6 = 4K). Section names in tools: "GFX.ini::Settings".
+1. Close Dolphin first or use Graphics -> Enhancements in the GUI.
+2. set_emulator_setting(dolphin, "GFX.ini::Settings", "InternalResolution", "<n>").
+3. Extras: "GFX.ini::Enhancements" MaxAnisotropy (0=1x .. 4=16x), "GFX.ini::Settings" MSAA,
+   widescreen hack "GFX.ini::Settings" wideScreenHack True.
+4. Verify with read_emulator_config(dolphin, search="InternalResolution").
+"""
+
+DOLPHIN_PER_GAME = """\
+Dolphin per-game settings: User/GameSettings/<GameID>.ini (6-char ID, e.g. GM4E01; 3-char prefixes
+like GM4.ini apply to all regions). Sections differ from the global files:
+  [Video_Settings] InternalResolution, MSAA, SSAA, wideScreenHack
+  [Video_Enhancements] MaxAnisotropy, ForceTextureFiltering
+  [Core] GFXBackend, CPUThread, ...
+1. list_games(dolphin, "<name>") reads the ID from .iso/.gcm/.wbfs. For .rvz/.gcz: right-click the game
+   -> Properties -> Info shows it.
+2. Use game_id="<ID>" with plain section names (e.g. section "Video_Settings").
+3. If unsure of a key: right-click -> Properties -> Game Config -> Editor shows the file; or snapshot,
+   change it in the GUI, diff.
+"""
+
+RPCS3_CONTROLLERS = PAD_PREP + """
+Steps
+1. RPCS3 running, focus_emulator_window(rpcs3). Open "Pads" (toolbar) / Configuration -> Pads.
+2. Player 1 -> Handler: "DualSense" for a DualSense, "DualShock 4" for a DS4 (native: rumble, LED,
+   motion); "SDL" or "XInput" for an 8BitDo (X-input mode).
+3. Device -> the pad (e.g. "DualSense Pad #1"). RPCS3 fills the default layout for that handler.
+4. Check sticks/deadzones with the visual tester, then "Save".
+5. Verify: read_emulator_config(rpcs3, search="Handler") also searches input_configs.
+"""
+
+RPCS3_UPSCALING = """\
+Upscaling in RPCS3: Video "Resolution Scale" (percent of 720p: 150 = 1080p, 200 = 1440p, 300 = 4K).
+Keep Video "Resolution" at 1280x720 (the game's native output); scale on top of it.
+1. Close RPCS3 first or use Configuration -> GPU in the GUI.
+2. set_emulator_setting(rpcs3, "Video", "Resolution Scale", "<percent>").
+3. Extras: "Anisotropic Filter Override" 16, "Output Scaling Mode" (Bilinear / Nearest / FidelityFX
+   Super Resolution), "Renderer" Vulkan.
+4. Verify with read_emulator_config(rpcs3, search="Resolution Scale").
+Heavy games may need 100-150%; check the game's wiki page on rpcs3.net for known issues.
+"""
+
+RPCS3_PER_GAME = """\
+RPCS3 per-game configs: config/custom_configs/config_<SERIAL>.yml (e.g. BLUS30443). RPCS3 writes a
+full copy when one is created, so create it in the GUI first:
+1. list_games(rpcs3, "<name>") reads serials from RPCS3's games.yml.
+2. If the game has no custom config: right-click the game -> "Create Custom Configuration" -> OK.
+3. Then use game_id="<SERIAL>" with read/set/snapshot/diff (same sections as config.yml, e.g. Video).
+"""
+
+
 class PCSX2(IniEmulator):
     id, display_name = "pcsx2", "PCSX2"
     process_names = ("pcsx2-qt.exe", "pcsx2.exe")
     default_install_dirs = (r"%ProgramFiles%\PCSX2",)
+    GAME_EXTS = frozenset({".iso", ".chd", ".cso", ".zso", ".gz", ".bin", ".cue", ".img", ".elf"})
     KNOWN_SETTINGS = (
-        K("EmuCore/GS", "upscale_multiplier", "Internal resolution multiplier: 1 = native, 3 = 1440p-ish, 6 = ~4K"),
-        K("EmuCore/GS", "Renderer", "-1 Auto, 3 Direct3D 11, 12 OpenGL, 13 Software, 14 Vulkan (verify on your build)"),
+        K("EmuCore/GS", "upscale_multiplier", "Internal resolution: 1 native, 3 ~1080p, 4 ~1440p, 6 ~4K"),
+        K("EmuCore/GS", "Renderer", "-1 Auto, 3 Direct3D 11, 12 OpenGL, 13 Software, 14 Vulkan" + _V),
+        K("EmuCore/GS", "MaxAnisotropy", "Anisotropic filtering: 0 off, 2, 4, 8, 16"),
+        K("EmuCore/GS", "AspectRatio", "Auto 4:3/3:2, 4:3, 16:9, Stretch"),
         K("EmuCore/GS", "VsyncEnable", "true/false"),
+        K("EmuCore", "EnableWideScreenPatches", "true/false (applies widescreen patches when available)"),
         K("UI", "StartFullscreen", "true/false"),
-        K("GameList", "RecursivePaths", "Game folder scanned recursively (repeat key for more)"),
-        K("Pad1", "Type", "Controller type, e.g. DualShock2"),
-        K("Pad1", "Cross", "Binding, e.g. SDL-0/FaceSouth or XInput-0/A"),
+        K("GameList", "RecursivePaths", "Game folder scanned recursively (key repeats per folder)"),
+        K("InputSources", "SDL", "Enable SDL controllers: true/false"),
+        K("InputSources", "SDLControllerEnhancedMode", "DualShock 4 / DualSense enhanced mode: true/false"),
+        K("Pad1", "Type", "Controller type: DualShock2"),
+        K("Pad1", "Cross", "Binding, e.g. SDL-0/FaceSouth (Circle FaceEast, Square FaceWest, Triangle FaceNorth)" + _V),
     )
-    notes = "Portable if portable.ini or portable.txt sits next to the exe."
+    GUIDES = {"controllers": PCSX2_CONTROLLERS, "upscaling": PCSX2_UPSCALING, "per_game": PCSX2_PER_GAME}
+    notes = "Portable if portable.ini or portable.txt sits next to the exe. Per-game: gamesettings/<SERIAL>_<CRC>.ini."
+
+    def data_dir(self) -> Path:
+        cfg = self.config_path() if self._game_file is None else None
+        if cfg:
+            return cfg.parent.parent  # <data>/inis/PCSX2.ini
+        exe = self.find_exe()
+        return exe.parent if _portable(exe, "portable.ini", "portable.txt") else documents_dir() / "PCSX2"
 
     def config_candidates(self) -> list[Path]:
         exe = self.find_exe()
         paths = [exe.parent / "inis" / "PCSX2.ini"] if _portable(exe, "portable.ini", "portable.txt") else []
         return paths + [documents_dir() / "PCSX2" / "inis" / "PCSX2.ini"]
+
+    def extra_watch_files(self) -> list[Path]:
+        return sorted((self.data_dir() / "inputprofiles").glob("*.ini"))
+
+    def normalize_game_id(self, game_id: str) -> str:
+        serial = normalize_ps_serial(game_id)
+        if not serial:
+            raise ValueError(f"{game_id!r} isn't a PS2 serial (e.g. SLUS-20984 or SLUS-20984_E2C8A0D8)")
+        crc = re.search(r"_([0-9A-Fa-f]{8})\b", game_id)
+        if crc:
+            return f"{serial}_{crc.group(1).upper()}"
+        existing = sorted((self.data_dir() / "gamesettings").glob(f"{serial}_*.ini"))
+        if len(existing) == 1:
+            return existing[0].stem
+        raise ValueError(f"PCSX2 per-game files are named <SERIAL>_<CRC>. No existing file for {serial}: get the "
+                         "CRC from PCSX2 (right-click the game -> Properties) and pass SERIAL_CRC.")
+
+    def game_config_file(self, game_id: str) -> Path:
+        return self.data_dir() / "gamesettings" / f"{game_id}.ini"
+
+    def list_games(self, query: str = "") -> list[dict[str, Any]]:
+        from .ini_store import IniDocument
+
+        cfg = self.config_path()
+        if cfg is None:
+            return []
+        doc = IniDocument.load(cfg)
+        folders = [(Path(p), False) for p in doc.get_all("GameList", "Paths")]
+        folders += [(Path(p), True) for p in doc.get_all("GameList", "RecursivePaths")]
+        return self._scan_games(folders, read_ps_serial, query)
 
     def launch_args(self, game: str | None, fullscreen: bool) -> list[str]:
         args = ["-fullscreen"] if fullscreen else []
@@ -47,18 +235,24 @@ class DuckStation(IniEmulator):
     id, display_name = "duckstation", "DuckStation"
     process_names = ("duckstation-qt-x64-releaseltcg.exe", "duckstation-qt.exe")
     default_install_dirs = (r"%LOCALAPPDATA%\Programs\DuckStation",)
+    GAME_EXTS = frozenset({".cue", ".bin", ".iso", ".img", ".chd", ".pbp", ".m3u", ".ecm", ".mds"})
     KNOWN_SETTINGS = (
         K("GPU", "Renderer", "Automatic, Vulkan, D3D11, D3D12, OpenGL, Software"),
-        K("GPU", "ResolutionScale", "Internal resolution multiplier: 1 = native 240p, 9 = ~4K"),
+        K("GPU", "ResolutionScale", "Internal resolution: 1 native 240p, 4 ~1080p, 6 ~1440p, 9 ~4K"),
         K("GPU", "Multisamples", "MSAA sample count, 1 = off"),
         K("GPU", "TextureFilter", "Nearest, Bilinear, JINC2, xBR ..."),
+        K("GPU", "PGXPEnable", "Geometry correction (no wobble): true/false"),
+        K("GPU", "TrueColor", "24-bit colour, removes dithering banding: true/false"),
+        K("GPU", "WidescreenHack", "Widescreen rendering hack: true/false (pair with AspectRatio 16:9)"),
         K("Display", "AspectRatio", "Auto (Game Native), 4:3, 16:9 ..."),
         K("Main", "StartFullscreen", "true/false"),
-        K("GameList", "RecursivePaths", "Game folder scanned recursively"),
-        K("Pad1", "Type", "AnalogController, DigitalController, DualShock ..."),
-        K("Pad1", "Cross", "Binding, e.g. SDL-0/A"),
+        K("GameList", "RecursivePaths", "Game folder scanned recursively (key repeats per folder)"),
+        K("InputSources", "SDL", "Enable SDL controllers: true/false"),
+        K("Pad1", "Type", "AnalogController (DualShock), DigitalController, ..."),
+        K("Pad1", "Cross", "Binding, e.g. SDL-0/A" + _V),
     )
-    notes = "Portable if portable.txt sits next to the exe."
+    GUIDES = {"controllers": DUCK_CONTROLLERS, "upscaling": DUCK_UPSCALING, "per_game": DUCK_PER_GAME}
+    notes = "Portable if portable.txt sits next to the exe. Per-game: gamesettings/<SERIAL>.ini."
 
     def config_candidates(self) -> list[Path]:
         exe = self.find_exe()
@@ -66,23 +260,61 @@ class DuckStation(IniEmulator):
         local = env_path("LOCALAPPDATA", "DuckStation", "settings.ini")
         return paths + ([local] if local else []) + [documents_dir() / "DuckStation" / "settings.ini"]
 
+    def data_dir(self) -> Path:
+        cfg = next((p for p in self.config_candidates() if p.exists()), None)
+        return (cfg or self.config_candidates()[-1]).parent
+
+    def extra_watch_files(self) -> list[Path]:
+        return sorted((self.data_dir() / "inputprofiles").glob("*.ini"))
+
+    def normalize_game_id(self, game_id: str) -> str:
+        serial = normalize_ps_serial(game_id)
+        if not serial:
+            raise ValueError(f"{game_id!r} isn't a PS1 serial (e.g. SCUS-94163)")
+        return serial
+
+    def game_config_file(self, game_id: str) -> Path:
+        return self.data_dir() / "gamesettings" / f"{game_id}.ini"
+
+    def list_games(self, query: str = "") -> list[dict[str, Any]]:
+        from .ini_store import IniDocument
+
+        cfg = self.config_path()
+        if cfg is None:
+            return []
+        doc = IniDocument.load(cfg)
+        folders = [(Path(p), False) for p in doc.get_all("GameList", "Paths")]
+        folders += [(Path(p), True) for p in doc.get_all("GameList", "RecursivePaths")]
+        return self._scan_games(folders, read_ps_serial, query)
+
     def launch_args(self, game: str | None, fullscreen: bool) -> list[str]:
         return (["-fullscreen"] if fullscreen else []) + ([game] if game else [])
 
 
 class Dolphin(IniEmulator):
-    """Dolphin splits config across files, so sections are addressed as 'File.ini::Section'."""
+    """Dolphin splits config across files, so global sections are addressed as 'File.ini::Section'.
+    Per-game files (GameSettings/<ID>.ini) use plain section names."""
     id, display_name = "dolphin", "Dolphin"
     process_names = ("dolphin.exe",)
     default_install_dirs = (r"%ProgramFiles%\Dolphin",)
+    CONFIG_FILES = ("Dolphin.ini", "GFX.ini", "GCPadNew.ini", "WiimoteNew.ini")
+    GAME_EXTS = frozenset({".iso", ".gcm", ".wbfs", ".rvz", ".wia", ".gcz", ".ciso", ".wad", ".dol", ".elf"})
     KNOWN_SETTINGS = (
-        K("GFX.ini::Settings", "InternalResolution", "1 = native 480p, 3 = 1080p, 6 = ~4K"),
+        K("GFX.ini::Settings", "InternalResolution", "1 native 480p, 2 720p, 3 1080p, 4 1440p, 6 4K"),
         K("GFX.ini::Settings", "MSAA", "Anti-aliasing samples"),
+        K("GFX.ini::Settings", "SSAA", "Supersampling instead of MSAA: True/False"),
+        K("GFX.ini::Settings", "wideScreenHack", "Widescreen hack: True/False"),
+        K("GFX.ini::Settings", "AspectRatio", "0 Auto, 1 Force 16:9, 2 Force 4:3, 3 Stretch" + _V),
+        K("GFX.ini::Enhancements", "MaxAnisotropy", "0 1x, 1 2x, 2 4x, 3 8x, 4 16x"),
         K("Dolphin.ini::Core", "GFXBackend", "Vulkan, D3D12, D3D, OGL"),
+        K("Dolphin.ini::Core", "SIDevice0", "GameCube port 1 device: 6 Standard Controller" + _V),
         K("Dolphin.ini::Display", "Fullscreen", "True/False"),
         K("Dolphin.ini::General", "ISOPath0", "First game folder (ISOPaths = count)"),
-        K("GCPadNew.ini::GCPad1", "Device", "e.g. XInput/0/Gamepad"),
+        K("GCPadNew.ini::GCPad1", "Device", "e.g. SDL/0/DualSense Wireless Controller"),
+        K("WiimoteNew.ini::Wiimote1", "Source", "0 None, 1 Emulated, 2 Real Wii Remote" + _V),
     )
+    GUIDES = {"controllers": DOLPHIN_CONTROLLERS, "upscaling": DOLPHIN_UPSCALING, "per_game": DOLPHIN_PER_GAME}
+    notes = "Global sections are 'File.ini::Section'. Per-game: GameSettings/<GameID>.ini with plain sections."
 
     def config_dir(self) -> Path:
         exe = self.find_exe()
@@ -106,8 +338,10 @@ class Dolphin(IniEmulator):
     def read_settings(self, section: str | None = None) -> dict[str, Any]:
         from .ini_store import IniDocument
 
+        if self._game_file is not None:
+            return super().read_settings(section)
         out: dict[str, Any] = {}
-        for ini in ("Dolphin.ini", "GFX.ini", "GCPadNew.ini"):
+        for ini in self.CONFIG_FILES:
             path = self.config_dir() / ini
             if not path.exists():
                 continue
@@ -119,13 +353,41 @@ class Dolphin(IniEmulator):
         return out
 
     def target_file(self, section: str) -> Path | None:
+        if self._game_file is not None:
+            return self._game_file
         return self.config_dir() / self._split(section)[0]
 
     def config_files(self) -> list[Path]:
-        return [self.config_dir() / f for f in ("Dolphin.ini", "GFX.ini", "GCPadNew.ini")]
+        if self._game_file is not None:
+            return [self._game_file]
+        return [self.config_dir() / f for f in self.CONFIG_FILES]
+
+    def extra_watch_files(self) -> list[Path]:
+        profiles = self.config_dir() / "Profiles"
+        return sorted(profiles.glob("GCPad/*.ini")) + sorted(profiles.glob("Wiimote/*.ini"))
 
     def _expand(self, section: str, key: str, value: str) -> list[tuple[str, str, str]]:
         return [(self._split(section)[1], key, value)]  # the file is chosen by target_file()
+
+    def normalize_game_id(self, game_id: str) -> str:
+        gid = game_id.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{3,6}", gid):
+            raise ValueError(f"{game_id!r} isn't a Dolphin game ID (6 characters like GM4E01, or a 3-char prefix)")
+        return gid
+
+    def game_config_file(self, game_id: str) -> Path:
+        return self.config_dir().parent / "GameSettings" / f"{game_id}.ini"
+
+    def list_games(self, query: str = "") -> list[dict[str, Any]]:
+        from .ini_store import IniDocument
+
+        cfg = self.config_dir() / "Dolphin.ini"
+        if not cfg.exists():
+            return []
+        general = IniDocument.load(cfg).section("General")
+        recursive = general.get("RecursiveISOPaths", "False").lower() == "true"
+        folders = [(Path(v), recursive) for k, v in general.items() if re.fullmatch(r"ISOPath\d+", k)]
+        return self._scan_games(folders, read_gc_wii_id, query)
 
     def launch_args(self, game: str | None, fullscreen: bool) -> list[str]:
         return ["-b", "-e", game] if game else []
@@ -135,20 +397,59 @@ class RPCS3(EmulatorAdapter):
     """YAML config: section = top-level key ('Video'), key = nested key ('Resolution Scale')."""
     id, display_name = "rpcs3", "RPCS3"
     process_names = ("rpcs3.exe",)
+    game_file_must_exist = True
     KNOWN_SETTINGS = (
         K("Video", "Renderer", "Vulkan, OpenGL, Null"),
-        K("Video", "Resolution Scale", "Percent: 100 = 720p, 300 = 4K"),
+        K("Video", "Resolution Scale", "Percent of 720p: 150 ~1080p, 200 ~1440p, 300 ~4K"),
         K("Video", "Anisotropic Filter Override", "0, 2, 4, 8, 16"),
+        K("Video", "Output Scaling Mode", "Bilinear, Nearest, FidelityFX Super Resolution" + _V),
         K("Video", "Frame limit", "Auto, Off, 30, 50, 60, ..."),
+        K("Video", "VSync", "true/false"),
         K("Miscellaneous", "Start games in fullscreen mode", "true/false"),
     )
-    notes = "Per-game overrides live in config/custom_configs/config_<SERIAL>.yml. Games are installed via the GUI."
+    GUIDES = {"controllers": RPCS3_CONTROLLERS, "upscaling": RPCS3_UPSCALING, "per_game": RPCS3_PER_GAME}
+    notes = ("Per-game: config/custom_configs/config_<SERIAL>.yml (create it in RPCS3 first). Pads live in "
+             "config/input_configs (searched too). Games are installed via the GUI.")
+
+    def root(self) -> Path | None:
+        exe = self.find_exe()
+        return exe.parent if exe else None
 
     def config_candidates(self) -> list[Path]:
-        exe = self.find_exe()
-        if not exe:
+        root = self.root()
+        if not root:
             return []
-        return [exe.parent / "config" / "config.yml", exe.parent / "config.yml"]
+        return [root / "config" / "config.yml", root / "config.yml"]
+
+    def extra_watch_files(self) -> list[Path]:
+        root = self.root()
+        if not root:
+            return []
+        return sorted((root / "config" / "input_configs").rglob("*.yml")) + sorted((root / "input_configs").rglob("*.yml"))
+
+    def normalize_game_id(self, game_id: str) -> str:
+        gid = game_id.strip().upper().replace("-", "").replace("_", "")
+        if not re.fullmatch(r"[A-Z]{4}\d{5}", gid):
+            raise ValueError(f"{game_id!r} isn't a PS3 serial (e.g. BLUS30443 or NPUB30024)")
+        return gid
+
+    def game_config_file(self, game_id: str) -> Path:
+        root = self.root()
+        if not root:
+            raise FileNotFoundError("RPCS3 not found; use locate_emulator first")
+        candidates = [root / "config" / "custom_configs" / f"config_{game_id}.yml",
+                      root / "custom_configs" / f"config_{game_id}.yml"]
+        return next((c for c in candidates if c.exists()), candidates[0])
+
+    def list_games(self, query: str = "") -> list[dict[str, Any]]:
+        root = self.root()
+        games_yml = next((p for p in (root / "config" / "games.yml", root / "games.yml") if p.exists()), None) if root else None
+        if games_yml is None:
+            return []
+        data = yaml.safe_load(games_yml.read_text(encoding="utf-8")) or {}
+        q = query.lower()
+        return [{"file": str(path), "id": serial} for serial, path in sorted(data.items())
+                if q in str(serial).lower() or q in str(path).lower()][:150]
 
     def read_settings(self, section: str | None = None) -> dict[str, Any]:
         path = self.config_path()
@@ -278,57 +579,39 @@ class Eden(IniEmulator):
              "differ between builds: learn them with snapshot_config -> GUI change -> diff_config -> remember_setting. "
              "Per-game overrides via game_id (see emulator_guide eden per_game).")
 
-    def __init__(self, exe_override: str | None = None) -> None:
-        super().__init__(exe_override)
-        self._game_id: str | None = None
+    GAME_EXTS = frozenset(SWITCH_GAME_EXTS)
 
     # ---- locations ------------------------------------------------------------
-    def _global_candidates(self) -> list[Path]:
+    def config_candidates(self) -> list[Path]:
         exe = self.find_exe()
         portable = [exe.parent / "user" / "config" / "qt-config.ini"] if exe else []
         roaming = env_path("APPDATA", "eden", "config", "qt-config.ini")
         return portable + ([roaming] if roaming else [])
 
     def config_dir(self) -> Path | None:
-        found = next((p for p in self._global_candidates() if p.exists()), None)
+        found = next((p for p in self.config_candidates() if p.exists()), None)
         return found.parent if found else None
 
-    def config_candidates(self) -> list[Path]:
-        if self._game_id:
-            cfg = self.config_dir()
-            return [cfg / "custom" / f"{self._game_id}.ini"] if cfg else []
-        return self._global_candidates()
-
-    def target_file(self, section: str) -> Path | None:
-        if self._game_id:  # an override file is created on first write
-            candidates = self.config_candidates()
-            return candidates[0] if candidates else None
-        return self.config_path()
-
-    def config_files(self) -> list[Path]:
-        if self._game_id:
-            return self.config_candidates()
-        return super().config_files()
-
-    def watch_files(self) -> list[Path]:
-        files = self.config_files()
+    def extra_watch_files(self) -> list[Path]:
         cfg = self.config_dir()
-        if cfg and not self._game_id:
-            files += sorted((cfg / "input").glob("*.ini"))  # saved controller profiles
-        return files
+        return sorted((cfg / "input").glob("*.ini")) if cfg else []  # saved controller profiles
 
     # ---- per-game -------------------------------------------------------------
-    def for_game(self, game_id: str) -> "Eden":
+    def normalize_game_id(self, game_id: str) -> str:
         tid = game_id.strip().upper()
         if not re.fullmatch(r"[0-9A-F]{16}", tid):
             raise ValueError(f"{game_id!r} isn't a Switch title ID (16 hex digits, e.g. 0100F2C0115B6000). "
                              "Use list_games(eden, '<name>') or Eden's right-click -> Properties.")
-        view = copy.copy(self)
-        view._game_id = tid
-        return view
+        return tid
+
+    def game_config_file(self, game_id: str) -> Path:
+        cfg = self.config_dir()
+        if cfg is None:
+            raise FileNotFoundError("Eden's config folder wasn't found; launch Eden once or use locate_emulator")
+        return cfg / "custom" / f"{game_id}.ini"
 
     def _expand(self, section: str, key: str, value: str) -> list[tuple[str, str, str | None]]:
-        if self._game_id:
+        if self._game_file is not None:
             if value.strip().lower() == "global":  # drop the override, fall back to the global value
                 return [(section, key, None), (section, f"{key}\\use_global", "true"),
                         (section, f"{key}\\default", None)]
@@ -336,26 +619,21 @@ class Eden(IniEmulator):
                     (section, f"{key}\\default", "false")]
         return [(section, key, value), (section, f"{key}\\default", "false")]
 
-    def list_games(self, query: str = "") -> list[dict[str, str | None]]:
+    def list_games(self, query: str = "") -> list[dict[str, Any]]:
         """Switch game files in Eden's configured game folders, with title IDs parsed from file names."""
         from .ini_store import IniDocument
 
-        cfg = self.config_path() if not self._game_id else None
+        cfg = self.config_path()
         if cfg is None:
             return []
-        folders = [Path(v.strip('"')) for k, v in IniDocument.load(cfg).section("UI").items()
-                   if re.fullmatch(r"Paths\\gamedirs\\\d+\\path", k)]
-        games = []
-        for folder in folders:
-            if not folder.is_dir():
-                continue
-            for f in sorted(folder.rglob("*")):
-                if f.suffix.lower() in SWITCH_GAME_EXTS and query.lower() in f.name.lower():
-                    m = TITLE_ID.search(f.name)
-                    games.append({"file": str(f), "title_id": m.group(1).upper() if m else None})
-                    if len(games) >= 100:
-                        return games
-        return games
+        ui = IniDocument.load(cfg).section("UI")
+        folders = [(Path(v.strip('"')), True) for k, v in ui.items() if re.fullmatch(r"Paths\\gamedirs\\\d+\\path", k)]
+
+        def title_id(f: Path) -> str | None:
+            m = TITLE_ID.search(f.name)
+            return m.group(1).upper() if m else None
+
+        return self._scan_games(folders, title_id, query)
 
     def launch_args(self, game: str | None, fullscreen: bool) -> list[str]:
         return (["-f"] if fullscreen else []) + (["-g", game] if game else [])

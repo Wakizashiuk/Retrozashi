@@ -78,11 +78,12 @@ NATIVE_TOOLS: list[dict[str, Any]] = [
           {"emulator": _EMU, "query": {"type": "string"}}),
     _tool("list_config_backups",
           "List an emulator's config backups (one is made before every write), newest first.",
-          {"emulator": _EMU}),
+          {"emulator": _EMU, "game_id": _GAME}),
     _tool("restore_config_backup",
           "Undo config changes by restoring a backup from list_config_backups ('' = the newest). The current "
           "file is backed up first, so a restore can itself be undone. Fails while the emulator runs.",
-          {"emulator": _EMU, "backup": {"type": "string", "description": "Full backup path, or '' for newest"}}),
+          {"emulator": _EMU, "backup": {"type": "string", "description": "Full backup path, or '' for newest"},
+           "game_id": _GAME}),
     _tool("launch_emulator",
           "Start an emulator, optionally booting a game. Use '' for game_path to open just the frontend.",
           {"emulator": _EMU, "game_path": {"type": "string"}, "fullscreen": {"type": "boolean"}}),
@@ -139,8 +140,9 @@ class NativeTools:
         self.uia = uia
         self.screen = screen
         self._window_api = window_api  # (list_windows, focus_window); win32 by default
-        # One entry per user request: the backups its config writes made. Drives the Undo button.
-        self.journal: list[list[tuple[str, Path]]] = []
+        # One entry per user request: (emulator, game_id or "", backup) for each config write it made.
+        # Drives the Undo button.
+        self.journal: list[list[tuple[str, str, Path]]] = []
 
     def begin_run(self) -> None:
         self.journal.append([])
@@ -152,10 +154,14 @@ class NativeTools:
         if not self.journal:
             return []
         run = self.journal.pop()
-        earliest: dict[Path, tuple[str, Path]] = {}
-        for emulator, bak in run:  # recorded oldest first: keep the first backup per file
-            earliest.setdefault(original_of(bak), (emulator, bak))
-        return [self.registry.get(emu).restore_backup(bak) for emu, bak in earliest.values()]
+        earliest: dict[Path, tuple[str, str, Path]] = {}
+        for emulator, game, bak in run:  # recorded oldest first: keep the first backup per file
+            earliest.setdefault(original_of(bak), (emulator, game, bak))
+        restored = []
+        for emu, game, bak in earliest.values():
+            adapter = self.registry.get(emu)
+            restored.append((adapter.for_game(game) if game else adapter).restore_backup(bak))
+        return restored
 
     def _adapter(self, inp: dict[str, Any]) -> EmulatorAdapter:
         adapter = self.registry.get(inp["emulator"])
@@ -247,12 +253,13 @@ class NativeTools:
                 if out.get("backup"):
                     if not self.journal:
                         self.begin_run()
-                    self.journal[-1].append((self.registry.get(inp["emulator"]).id, Path(out["backup"])))
+                    adapter = self._adapter(inp)
+                    self.journal[-1].append((adapter.id, adapter._game_id or "", Path(out["backup"])))
             elif name == "list_config_backups":
-                baks = self.registry.get(inp["emulator"]).list_backups()[:20]
+                baks = self._adapter(inp).list_backups()[:20]
                 out = [{"backup": str(b), "file": original_of(b).name} for b in baks] or "No backups yet."
             elif name == "restore_config_backup":
-                out = self.registry.get(inp["emulator"]).restore_backup(Path(inp["backup"]) if inp.get("backup") else None)
+                out = self._adapter(inp).restore_backup(Path(inp["backup"]) if inp.get("backup") else None)
             elif name == "launch_emulator":
                 pid = self.registry.get(inp["emulator"]).launch(inp.get("game_path") or None,
                                                                 bool(inp.get("fullscreen")))

@@ -53,7 +53,9 @@ Each phase ends with something you can run and use.
 - [x] Search every section; learn unknown keys/enums by snapshot → GUI change → diff; remember per PC.
 - [x] Eden: portable/AppData detection, per-game overrides (title IDs), controller + upscaling guides,
   input profiles in diffs, exe search, Yes/No before closing a running emulator.
-- [ ] Same per-game + guides treatment for PCSX2, DuckStation, Dolphin, RPCS3.
+- [x] Same per-game + guides treatment for PCSX2, DuckStation, Dolphin, RPCS3 (disc-image ID reading,
+  input profiles in search/diff, controllers/upscaling/per_game guides).
+- [ ] CHD/RVZ/CSO ID reading (needs decompression); PCSX2 ELF CRC computation.
 - [ ] Eden on the user's PC: run the controllers/upscaling guides once, record learned values.
 
 ## Phase 5: Ship it

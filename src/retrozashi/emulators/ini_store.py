@@ -85,6 +85,17 @@ class IniDocument:
         del self.lines[idx]
         return True
 
+    def get_all(self, section: str, key: str) -> list[str]:
+        """Every value of a repeated key (PCSX2/DuckStation list game folders this way)."""
+        out, current = [], None
+        for line in self.lines:
+            m = _SECTION.match(line)
+            if m:
+                current = m.group("name").strip()
+            elif current == section and (kv := _KEYVAL.match(line)) and kv.group("key").strip() == key:
+                out.append(kv.group("value").strip())
+        return out
+
     def section(self, section: str) -> dict[str, str]:
         out: dict[str, str] = {}
         current = None

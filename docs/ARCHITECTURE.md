@@ -185,6 +185,24 @@ Adapters' `KNOWN_SETTINGS` are hints. The tools that make *every* section editab
 | `locate_emulator` | Searches the user folders, Program Files and emulator/game folders on each drive for the exe, and remembers it |
 | `close_emulator` | Shows the user a Yes/No dialog first (`confirm_close_emulator`), enforced in code |
 
+### Per-game overrides and game IDs (all emulators)
+
+`for_game(game_id)` returns a *view* of an adapter whose config is that game's override file, so
+reads, writes, backups, Undo, search and diffs all work per game without special cases.
+
+| Emulator | Override file | Game ID | How `list_games` gets it |
+|---|---|---|---|
+| PCSX2 | `gamesettings/<SERIAL>_<CRC>.ini` | `SLUS-20984_E2C8A0D8` | Serial from the disc's SYSTEM.CNF. The CRC comes from PCSX2's Properties once; after that the serial alone resolves |
+| DuckStation | `gamesettings/<SERIAL>.ini` | `SCUS-94163` | SYSTEM.CNF in .iso, raw 2352-byte .bin, or via .cue |
+| Dolphin | `User/GameSettings/<ID>.ini` (sections `Video_Settings`, `Core`…) | `GM4E01` | 6 bytes of the disc header (.iso/.gcm; .wbfs at 0x200) |
+| RPCS3 | `config/custom_configs/config_<SERIAL>.yml` (created in the GUI first) | `BLUS30443` | RPCS3's own `games.yml` |
+| Eden | `config/custom/<TitleID>.ini` (+ `\use_global=false`) | `0100…` (16 hex) | Title ID in the file name |
+
+`discs.py` reads ISO9660 directly (2048-byte and raw Mode 1/Mode 2 sectors) to find SYSTEM.CNF.
+Compressed images (.chd, .cso, .rvz…) return no ID, and the per_game guide says where the emulator
+shows it instead. Saved input profiles (PCSX2/DuckStation `inputprofiles/`, Dolphin `Profiles/GCPad|Wiimote`,
+RPCS3 `input_configs/`, Eden `input/`) are covered by search and diffs.
+
 ### Eden (Switch)
 
 - **Config:** `user/config/qt-config.ini` next to `eden.exe` (portable) or `%APPDATA%\eden\config`.

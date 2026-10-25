@@ -147,8 +147,8 @@ def test_guides_and_game_list(eden):
     guide = run(tools, "emulator_guide", emulator="eden", topic="Controllers")
     assert "Input Device" in guide and "Steam Input" in guide and "8BitDo" in guide
     games = run(tools, "list_games", emulator="eden", query="")
-    assert {g["title_id"] for g in games} == {MK8, None} and len(games) == 2   # readme.txt ignored
-    assert run(tools, "list_games", emulator="eden", query="mario")[0]["title_id"] == MK8
+    assert {g["id"] for g in games} == {MK8, None} and len(games) == 2   # readme.txt ignored
+    assert run(tools, "list_games", emulator="eden", query="mario")[0]["id"] == MK8
 
 
 def test_close_needs_user_confirmation(eden):

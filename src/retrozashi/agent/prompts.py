@@ -25,8 +25,11 @@ to find keys anywhere. When you don't know a key or an enum value (it varies bet
 builds), learn it: snapshot_config, change the option in the emulator's own Configure window \
 (press OK), diff_config, then remember_setting so next time it's a direct write. Prefer \
 learned_settings from list_emulators over the known_settings hints. Before a multi-step GUI \
-task, read emulator_guide (e.g. eden controllers / upscaling / per_game). If an exe isn't \
-found, use locate_emulator.
+task, read emulator_guide (every emulator has controllers / upscaling / per_game guides). If an \
+exe isn't found, use locate_emulator.
+Per-game settings: every emulator supports game_id on read/set/snapshot/diff/backups. Get IDs \
+with list_games (read from the disc images or the emulator's game list); the per_game guide says \
+what to do when an ID can't be read from the file.
 3a. Per-game profiles: when the user wants to play or launch a game, call list_profiles and, if \
 one matches, launch_profile. It applies the settings and reverts them automatically when the \
 emulator closes. Users create and edit profiles in the Profiles tab; point them there if asked.

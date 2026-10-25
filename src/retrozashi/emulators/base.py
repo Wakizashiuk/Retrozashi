@@ -8,6 +8,7 @@ Each adapter knows three things about one app:
 """
 from __future__ import annotations
 
+import copy
 import os
 import subprocess
 from abc import ABC, abstractmethod
@@ -53,6 +54,12 @@ class EmulatorAdapter(ABC):
     notes: str = ""
     # Step-by-step know-how for GUI tasks, served on demand by the emulator_guide tool.
     GUIDES: dict[str, str] = {}
+    GAME_EXTS: frozenset[str] = frozenset()
+    # Set on a per-game view (see for_game): the game's override file replaces the global config.
+    _game_id: str | None = None
+    _game_file: Path | None = None
+    # Some emulators (RPCS3) expect a full config copy made by their GUI before it can be edited.
+    game_file_must_exist = False
 
     def __init__(self, exe_override: str | None = None) -> None:
         self._exe_override = Path(exe_override) if exe_override else None
@@ -76,15 +83,58 @@ class EmulatorAdapter(ABC):
         """Ordered candidate config paths; portable (next-to-exe) locations first."""
 
     def config_path(self) -> Path | None:
+        if self._game_file is not None:
+            return self._game_file if self._game_file.exists() else None
         return next((p for p in self.config_candidates() if p.exists()), None)
 
+    def extra_watch_files(self) -> list[Path]:
+        """Saved input profiles etc. that diffs should also cover (global view only)."""
+        return []
+
     def watch_files(self) -> list[Path]:
-        """Files that snapshot/diff cover: config files plus extras like saved input profiles."""
-        return self.config_files()
+        """Files that snapshot/diff and search cover."""
+        files = self.config_files()
+        return files if self._game_file is not None else files + self.extra_watch_files()
+
+    # ---- per-game -------------------------------------------------------------
+    def normalize_game_id(self, game_id: str) -> str:
+        return game_id.strip()
+
+    def game_config_file(self, game_id: str) -> Path:
+        """Path of the override file for `game_id` (normalized)."""
+        raise ValueError(f"Per-game configs aren't supported for {self.display_name} yet")
 
     def for_game(self, game_id: str) -> "EmulatorAdapter":
-        """A view of this adapter whose config is one game's override file."""
-        raise ValueError(f"Per-game configs aren't supported for {self.display_name} yet")
+        """A view of this adapter whose config is one game's override file. Reads, writes, backups,
+        undo, search and diffs all work on it unchanged."""
+        gid = self.normalize_game_id(game_id)
+        path = self.game_config_file(gid)
+        if self.game_file_must_exist and not path.exists():
+            raise FileNotFoundError(f"{self.display_name} has no custom config for {gid} yet. Create it in "
+                                    f"{self.display_name} first (see emulator_guide {self.id} per_game).")
+        view = copy.copy(self)
+        view._game_id, view._game_file = gid, path
+        return view
+
+    def list_games(self, query: str = "") -> list[dict[str, Any]]:
+        raise ValueError(f"Game listing isn't supported for {self.display_name} yet")
+
+    def _scan_games(self, folders: list[tuple[Path, bool]], read_id, query: str = "",
+                    limit: int = 150) -> list[dict[str, Any]]:
+        """Walk (folder, recursive) pairs for GAME_EXTS files; `read_id(path)` extracts the game ID."""
+        games: list[dict[str, Any]] = []
+        for folder, recursive in folders:
+            if not folder.is_dir():
+                continue
+            for f in sorted(folder.rglob("*") if recursive else folder.glob("*")):
+                if f.suffix.lower() not in self.GAME_EXTS or query.lower() not in f.name.lower():
+                    continue
+                if f.suffix.lower() == ".bin" and f.with_suffix(".cue").exists():
+                    continue  # listed via its .cue
+                games.append({"file": str(f), "id": read_id(f)})
+                if len(games) >= limit:
+                    return games
+        return games
 
     def locate(self) -> list[Path]:
         """Search the PC for this emulator's exe (used when it isn't running or configured)."""
@@ -137,10 +187,14 @@ class EmulatorAdapter(ABC):
 
     def target_file(self, section: str) -> Path | None:
         """The file a write to `section` lands in (multi-file emulators override this)."""
+        if self._game_file is not None:
+            return self._game_file  # created on first write
         return self.config_path()
 
     def config_files(self) -> list[Path]:
         """Every file this adapter may write: what backups and undo cover."""
+        if self._game_file is not None:
+            return [self._game_file]
         path = self.config_path()
         return [path] if path else []
 
@@ -215,6 +269,7 @@ class EmulatorAdapter(ABC):
             "running": self.is_running(),
             "known_settings": [f"[{s.section}] {s.key}: {s.meaning}" for s in self.KNOWN_SETTINGS],
             "guides": sorted(self.GUIDES),
+            "per_game": type(self).game_config_file is not EmulatorAdapter.game_config_file,
             "notes": self.notes,
         }
 
