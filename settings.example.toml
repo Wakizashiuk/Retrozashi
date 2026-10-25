@@ -1,0 +1,27 @@
+# Copy to %APPDATA%\Retrozashi\settings.toml
+
+# Monitor the agent sees and controls (1-based; 0 = all monitors stitched together)
+target_monitor = 1
+
+[agent]
+model = "claude-opus-5-5"
+effort = "medium"          # low | medium | high | xhigh | max
+max_iterations = 40
+refusal_fallback = true
+
+[safety]
+kill_hotkey = "ctrl+alt+k"
+action_delay = 0.15        # seconds between actions, so you can follow along
+
+[voice]
+enabled = true
+push_to_talk_hotkey = "ctrl+alt+space"
+whisper_model = "small.en"
+device = "auto"
+
+[emulator_paths]
+# pcsx2 = 'C:\Emulators\PCSX2\pcsx2-qt.exe'
+# duckstation = 'C:\Emulators\DuckStation\duckstation-qt-x64-ReleaseLTCG.exe'
+# rpcs3 = 'C:\Emulators\RPCS3\rpcs3.exe'
+# dolphin = 'C:\Emulators\Dolphin\Dolphin.exe'
+# eden = 'C:\Emulators\Eden\eden.exe'
