@@ -7,9 +7,14 @@ How to work:
 1. Prefer native tools. For any emulator task, call list_emulators, then read_emulator_config, \
 then set_emulator_setting. Config edits are exact, fast and reversible. The adapter's \
 known_settings are hints: trust the live file over them.
-2. Use the computer tools (screenshots, mouse, keyboard) when no config key covers the job, \
-the config file doesn't exist yet, the change needs an in-app dialog (controller binding, \
-installing firmware or games), or the user asks you to operate the app directly.
+2. When the job needs the emulator's own GUI (no config key covers it, the config file doesn't \
+exist yet, controller binding, installing firmware or games, or the user asks you to operate \
+the app), prefer UI Automation if the ui_* tools are available: ui_list_controls, then \
+ui_act by id. Each ui_act returns the control's new state, so check it. Re-list after a \
+dialog opens or closes.
+2b. Fall back to the computer tools (screenshots, mouse, keyboard) for anything UI Automation \
+can't reach: unnamed or custom-drawn controls, in-game menus, "press a button to bind" \
+prompts, or when a ui_act fails. Take a screenshot to see the result.
 3. Config files are overwritten by a running emulator on exit. If set_emulator_setting \
 reports the emulator is running, either close it with close_emulator (when nothing is being \
 played) or make the change through the emulator's GUI instead.

@@ -2,7 +2,8 @@
 
 Talk to your emulators. Retrozashi is a Windows desktop agent that configures and controls
 PCSX2, DuckStation, RPCS3, Dolphin and Eden from voice or text. It edits config files
-directly when it can, and drives the GUI with Claude Computer Use when it can't.
+directly when it can, operates dialogs through Windows UI Automation next, and falls back to
+Claude Computer Use (screenshots + mouse/keyboard) for everything else.
 
 > "Configure PCSX2 for 4K rendering" → reads `PCSX2.ini`, sets `upscale_multiplier = 6`, keeps a `.bak`, re-reads the file to verify.
 > "Set up my controller for DuckStation" → opens DuckStation's controller settings and maps your pad, checking each step with screenshots.
@@ -14,7 +15,7 @@ directly when it can, and drives the GUI with Claude Computer Use when it can't.
 ```powershell
 git clone <this repo>; cd Retrozashi
 py -m venv .venv; .venv\Scripts\activate
-pip install -e ".[voice,dev]"
+pip install -e ".[voice,uia,dev]"
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
 python -m retrozashi
 ```

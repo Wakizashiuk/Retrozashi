@@ -6,7 +6,7 @@
     └─────┬──────┘  tool_use blocks    └──────────────┘
           │ toolset_name == "computer"      │ otherwise
           ▼                                 ▼
-    ActionExecutor (SendInput, mss)    NativeTools (config files, processes)
+    ActionExecutor (SendInput, mss)    NativeTools (config files, processes, UI Automation)
           │                                 │
           └────────── tool_result blocks ───┘  (all in ONE user message)
 
@@ -24,7 +24,7 @@ from ..core.events import EventBus, EventKind
 from ..core.safety import AgentHalted, KillSwitch
 from ..desktop.executor import ActionError, ActionExecutor
 from .prompts import SYSTEM_PROMPT
-from .tools import NATIVE_TOOLS, NativeTools
+from .tools import NativeTools
 
 COMPUTER_TOOLSET = {"type": "computer_toolset_20260801"}
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -96,7 +96,7 @@ class AgentLoop:
             model=self.settings.model,
             max_tokens=self.settings.max_tokens,
             system=SYSTEM_PROMPT,
-            tools=[COMPUTER_TOOLSET, *NATIVE_TOOLS],
+            tools=[COMPUTER_TOOLSET, *self.native.definitions],
             messages=self.messages,
             thinking={"type": "adaptive"},
             output_config={"effort": self.settings.effort},

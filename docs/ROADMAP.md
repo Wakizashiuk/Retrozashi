@@ -24,8 +24,9 @@ Each phase ends with something you can run and use.
 
 ## Phase 2: Reliability (1–2 weeks)
 - **Window targeting.** Capture just the emulator window (`GetWindowRect` + `SetForegroundWindow`) instead of the whole monitor, for higher detail at lower cost.
-- **UI Automation fast path.** Add a `uia_click(name)` native tool via `pywinauto`/`comtypes` UIA, so Qt
-  dialogs (PCSX2, DuckStation, Eden are Qt apps) can be operated by control name, not pixels.
+- [x] **UI Automation tier.** `ui_list_controls` / `ui_act` operate Qt dialogs by control name, scoped to emulator processes.
+- **UIA on real builds.** Check which PCSX2/DuckStation/Eden/Dolphin controls expose useful names; add
+  `automation_id` hints to adapters for the key dialogs (graphics, controllers).
 - **Settle detection.** After each action, wait until two consecutive frames match (or 1.5 s) before
   the next screenshot. Fewer "clicked before it rendered" mistakes.
 - **Confirmation mode.** `confirm_config_writes = true` shows a diff dialog before any write.

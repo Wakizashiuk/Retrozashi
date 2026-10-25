@@ -1,10 +1,13 @@
-"""Native (non-GUI) tools Claude can call. These are preferred over Computer Use whenever
-an adapter covers the setting: they're faster, exact, and reversible (.bak files)."""
+"""Native tools Claude can call, in order of preference:
+  1. config tools: exact, reversible (.bak), work with the emulator closed;
+  2. UI Automation tools: operate dialogs by control name, verify via returned state;
+  3. (agent/loop.py) Computer Use pixels: the universal fallback."""
 from __future__ import annotations
 
 import json
 from typing import Any
 
+from ..desktop.uia import ACTIONS, UiaController, UiaError
 from ..emulators.base import EmulatorBusy
 from ..emulators.registry import EmulatorRegistry
 
@@ -39,10 +42,34 @@ NATIVE_TOOLS: list[dict[str, Any]] = [
     _tool("close_emulator", "Gracefully close a running emulator so it flushes its config.", {"emulator": _EMU}),
 ]
 
+UIA_TOOLS: list[dict[str, Any]] = [
+    _tool("ui_list_controls",
+          "List the buttons, check boxes, combo boxes, text fields, tabs and menu items in a running emulator's "
+          "windows (via Windows UI Automation), each with an id. Use this before screenshots/clicks when "
+          "operating an emulator's settings dialogs: it is exact and needs no coordinates.",
+          {"emulator": _EMU,
+           "window_title_contains": {"type": "string", "description": "Filter windows by title, or '' for all"},
+           "include_labels": {"type": "boolean", "description": "Also list static text labels (noisier)"}}),
+    _tool("ui_act",
+          "Act on a control from the latest ui_list_controls by id. Returns the control's new state; check it. "
+          "click = press button / pick tab or item; toggle_on/toggle_off = set a check box; select = choose "
+          "`value` in a combo box (or select a list/tab item); set_text = replace an edit field with `value`; "
+          "expand/collapse = open/close a combo box or tree item; focus = bring a window (w#) or control to front; "
+          "read = state only.",
+          {"element_id": {"type": "string", "description": "e.g. 'e12' (control) or 'w0' (window)"},
+           "action": {"type": "string", "enum": list(ACTIONS)},
+           "value": {"type": "string", "description": "Item text for select, text for set_text, otherwise ''"}}),
+]
+
 
 class NativeTools:
-    def __init__(self, registry: EmulatorRegistry) -> None:
+    def __init__(self, registry: EmulatorRegistry, uia: UiaController | None = None) -> None:
         self.registry = registry
+        self.uia = uia
+
+    @property
+    def definitions(self) -> list[dict[str, Any]]:
+        return NATIVE_TOOLS + (UIA_TOOLS if self.uia else [])
 
     def run(self, name: str, inp: dict[str, Any]) -> tuple[str, bool]:
         """Returns (result text, is_error)."""
@@ -62,8 +89,13 @@ class NativeTools:
             elif name == "close_emulator":
                 self.registry.get(inp["emulator"]).close()
                 out = "Closed."
+            elif name == "ui_list_controls" and self.uia:
+                out = self.uia.list_controls(inp["emulator"], inp.get("window_title_contains", ""),
+                                             bool(inp.get("include_labels")))
+            elif name == "ui_act" and self.uia:
+                out = self.uia.act(inp["element_id"], inp["action"], inp.get("value", ""))
             else:
                 return f"Unknown tool {name}", True
             return (out if isinstance(out, str) else json.dumps(out, indent=1, default=str)), False
-        except (EmulatorBusy, FileNotFoundError, KeyError, ValueError, OSError) as e:
+        except (EmulatorBusy, UiaError, FileNotFoundError, KeyError, ValueError, OSError) as e:
             return f"{type(e).__name__}: {e}", True

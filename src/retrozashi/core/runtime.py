@@ -10,6 +10,7 @@ from ..agent.tools import NativeTools
 from ..config import Settings
 from ..desktop.executor import ActionExecutor
 from ..desktop.screen import ScreenCapture
+from ..desktop.uia import UiaController, uia_available
 from ..emulators.registry import EmulatorRegistry
 from .events import EventBus, EventKind
 from .safety import KillSwitch
@@ -25,7 +26,9 @@ class Runtime:
         self.screen = ScreenCapture(settings.target_monitor)
         self.executor = ActionExecutor(self.screen, self.kill, action_delay=settings.safety.action_delay)
         self.registry = EmulatorRegistry(settings.emulator_paths)
-        self.agent = AgentLoop(settings.agent, self.bus, self.kill, self.executor, NativeTools(self.registry))
+        self.uia = UiaController(self.registry, self.kill) if uia_available() else None
+        self.agent = AgentLoop(settings.agent, self.bus, self.kill, self.executor,
+                               NativeTools(self.registry, self.uia))
         self._jobs: queue.Queue = queue.Queue()
         self._worker = threading.Thread(target=self._work, name="AgentWorker", daemon=True)
         self.busy = False

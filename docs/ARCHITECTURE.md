@@ -12,6 +12,7 @@ Claude Computer Use when it can't. A hotkey kill switch can halt it at any time.
 | UI | **PySide6 (Qt 6)** | Native widgets, LGPL, signal/slot threading model, ships cleanly in PyInstaller |
 | LLM | **Claude Opus 5.5** (`claude-opus-5-5`) with the **`computer_toolset_20260801`** toolset | Current GA computer-use toolset; native tools ride alongside it in the same request |
 | Input injection | **Win32 `SendInput`** with scan codes plus `SetCursorPos` (ctypes) | Emulators read DirectInput/RawInput. Scan codes reach them; PyAutoGUI's VK-only events often don't |
+| Dialog control | **Windows UI Automation** via `pywinauto` (UIA backend) | Qt emulators expose their widgets to UIA: exact, DPI-proof, no mouse movement |
 | Screen capture | **mss** (BitBlt/DXGI) + Pillow | Fast multi-monitor capture and correct negative virtual-desktop coordinates |
 | Process mgmt | **psutil** + `subprocess` | Find, launch and gracefully close emulators |
 | Speech-to-text | **faster-whisper** (CTranslate2), local | Offline, GPU-accelerated, and an `initial_prompt` biases it towards "PCSX2", "DuckStation" etc. |
@@ -46,7 +47,8 @@ Claude Computer Use when it can't. A hotkey kill switch can halt it at any time.
 | `core/events.py` | `EventBus` + typed `AgentEvent`s that drive the status panel |
 | `core/safety.py` | `KillSwitch`: global hotkey, `check()`, interruptible `wait()`, release-held-input hooks |
 | `agent/loop.py` | The Claude sampling loop, tool routing, batch semantics |
-| `agent/tools.py` | Native tools: `list_emulators`, `read_emulator_config`, `set_emulator_setting`, `launch_emulator`, `close_emulator` |
+| `agent/tools.py` | Native tools: `list_emulators`, `read_emulator_config`, `set_emulator_setting`, `launch_emulator`, `close_emulator`, `ui_list_controls`, `ui_act` |
+| `desktop/uia.py` | UI Automation controller, scoped to registered emulator processes |
 | `desktop/screen.py` | Monitor selection, capture, downscale to API limits, coordinate mapping |
 | `desktop/executor.py` | Maps the 17 toolset members to Win32 input |
 | `desktop/win32.py` | ctypes: DPI awareness, `SendInput`, `RegisterHotKey`, `SetWindowDisplayAffinity` |
@@ -102,6 +104,25 @@ Key protocol rules the loop implements (`agent/loop.py`):
 5. `zoom` crops at native resolution for detail, but coordinates stay in full-screenshot space.
 6. Retrozashi's own window is hidden from capture (`WDA_EXCLUDEFROMCAPTURE`), so Claude never sees or clicks it.
 
+### Three control tiers
+
+Claude picks the most precise tool that can do the job, in this order:
+
+| Tier | Tools | Best for | Verification |
+|---|---|---|---|
+| 1. Config | `read_emulator_config` / `set_emulator_setting` | Anything with a known key; emulator closed | Re-read the file |
+| 2. UI Automation | `ui_list_controls` → `ui_act(id, action, value)` | Settings dialogs in Qt emulators: tabs, combo boxes, check boxes, text fields | `ui_act` returns the control's new state |
+| 3. Pixels | `computer_toolset_20260801` | Unnamed or custom-drawn controls, in-game menus, "press a button to bind" prompts | Screenshot |
+
+**Example.** "Turn on VSync in PCSX2" while it's running: `ui_list_controls("pcsx2", "Settings")` returns
+`{"id":"e7","type":"CheckBox","name":"Enable VSync"}`, then `ui_act("e7","toggle_on")` returns `{"toggled":1}`.
+That's done with two tool calls and no screenshots.
+
+UIA safety: the controller only lists windows whose **process belongs to a registered emulator**, so
+Claude can't reach any other app this way. Element ids reset on every listing, disabled controls are
+refused, and `kill.check()` runs before every action. Invoke/Toggle/Select/Value patterns don't move
+the mouse; only controls with none of those patterns fall back to a real click.
+
 ## 4. The context loop: Capture → Claude → Execute → Verify
 
 ```
@@ -110,9 +131,8 @@ Key protocol rules the loop implements (`agent/loop.py`):
       ▼
  ┌─ append user turn ─────────────────────────────────────────────┐
  │  1. CALL      stream request (tools + history)                 │
- │  2. DECIDE    Claude picks native tools first:                 │
- │               list_emulators → read_emulator_config → set_...  │
- │               …or computer members when no config key exists   │
+ │  2. DECIDE    config tools → UI Automation → pixels            │
+ │               (most precise tier that can do the job)          │
  │  3. EXECUTE   executor/native tools (kill.check() before each) │
  │  4. OBSERVE   tool_results (+ screenshots) appended            │
  │  5. VERIFY    Claude re-reads config / takes a screenshot      │
