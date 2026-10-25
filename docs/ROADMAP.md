@@ -69,6 +69,8 @@ Each phase ends with something you can run and use.
 
 ## Phase 4d: No API key needed
 - [x] MCP server mode for the Claude desktop app (`--mcp`), one-click install, first-run choice.
+- [x] **Check Claude app** button / `--doctor`: settings, real start-up handshake, Claude's own log, stale
+  Claude process, network-drive installs (auto-copied to this PC).
 - [ ] Voice in Claude-app mode (the Claude app's own dictation covers it for now).
 
 ## Phase 5: Ship it
