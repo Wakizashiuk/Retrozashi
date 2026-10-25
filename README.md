@@ -19,8 +19,9 @@ Claude Computer Use (screenshots + mouse/keyboard) for everything else.
 
 ## Get the .exe
 
-Every CI run on GitHub builds **`Retrozashi-win64.zip`**: open the run's summary page and download it
-from *Artifacts*. Unzip it anywhere and run `Retrozashi\Retrozashi.exe`. On first launch it asks
+**Download the latest version from [Releases](https://github.com/Wakizashiuk/Retrozashi/releases)**
+(`Retrozashi-vX.Y.Z-win64.zip`). Every CI run also builds `Retrozashi-win64.zip` under the run's
+*Artifacts* (kept 14 days). Pushing a `v*` tag publishes a release automatically. Unzip it anywhere and run `Retrozashi\Retrozashi.exe`. On first launch it asks
 for your Anthropic API key and stores it in **Windows Credential Manager**. The first voice command
 downloads the Whisper model (~250 MB, once).
 

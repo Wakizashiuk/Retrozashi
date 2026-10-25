@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]          # a version tag also publishes a GitHub Release (job "release" below)
   pull_request:
 
 jobs:
@@ -57,3 +58,31 @@ jobs:
           name: selftest-report
           path: dist/selftest.json
           if-no-files-found: ignore
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-exe
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Retrozashi-win64
+      - name: Create release with the exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          zip="Retrozashi-${TAG}-win64.zip"
+          mv Retrozashi-win64.zip "$zip"
+          sha256sum "$zip" > "$zip.sha256"
+          notes="docs/releases/${TAG}.md"
+          [ -f "$notes" ] || notes=docs/releases/default.md
+          # v0.x and tags with a suffix (v1.0.0-rc1) are marked as pre-releases.
+          pre=""
+          if [[ "$TAG" == v0.* || "$TAG" == *-* ]]; then pre="--prerelease"; fi
+          gh release create "$TAG" "$zip" "$zip.sha256" --repo "$GITHUB_REPOSITORY" \
+            --title "Retrozashi $TAG" --notes-file "$notes" --verify-tag $pre
