@@ -171,6 +171,23 @@ once via the GUI, re-read the file to learn the value, and use config writes fro
 To add an app, subclass `IniEmulator` (or `EmulatorAdapter`), fill in `process_names`,
 `config_candidates()` and `KNOWN_SETTINGS`, then `registry.register(MyAdapter())`.
 
+### Per-game profiles (`profiles.py`, `ui/profiles_panel.py`)
+
+A profile is `{name, emulator, game_path, fullscreen, settings[section,key,value], notes}`, stored in
+`%APPDATA%\Retrozashi\profiles.json` and created in the **Profiles** tab. The editor offers each
+adapter's known settings. Launching one (double-click, ▶ Launch, or "play GT4" via `launch_profile`)
+works like this:
+
+1. Refuse if the emulator is already running, since it would overwrite the change and there'd be nothing clean to revert to.
+2. `adapter.apply_settings()`: one backup per file, and **each key's previous value is recorded**.
+   Keys that didn't exist before are recorded as absent.
+3. Persist the pending revert to `pending_reverts.json`, then launch the emulator with the game.
+4. A watcher thread waits for the launched process and every other instance to exit, plus 1 s for
+   the config flush. Then `adapter.revert_changes()` puts back **only those keys**, newest first, and
+   removes the ones that were absent. Anything you changed in the emulator's menus during play is kept.
+5. If the launch fails, the profile is reverted immediately. If Retrozashi closes or crashes mid-game,
+   `recover()` on the next start reverts it, or resumes watching if the emulator is still running.
+
 ## 6. Safety and control
 
 | Layer | Mechanism |

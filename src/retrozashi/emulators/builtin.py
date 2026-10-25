@@ -3,6 +3,7 @@ emulator releases, so the agent always reads the live file first and can fall ba
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -121,8 +122,8 @@ class Dolphin(IniEmulator):
     def config_files(self) -> list[Path]:
         return [self.config_dir() / f for f in ("Dolphin.ini", "GFX.ini", "GCPadNew.ini")]
 
-    def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None:
-        return super()._write_setting(path, self._split(section)[1], key, value)
+    def _expand(self, section: str, key: str, value: str) -> list[tuple[str, str, str]]:
+        return [(self._split(section)[1], key, value)]  # the file is chosen by target_file()
 
     def launch_args(self, game: str | None, fullscreen: bool) -> list[str]:
         return ["-b", "-e", game] if game else []
@@ -154,13 +155,24 @@ class RPCS3(EmulatorAdapter):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         return {section: data.get(section, {})} if section else data
 
-    def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None:
+    def _get_raw(self, path: Path, section: str, key: str) -> str | None:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        node = data.setdefault(section, {})
-        old = node.get(key)
-        node[key] = yaml.safe_load(value) if value.strip() else value  # "300" -> 300, "true" -> True
+        value = (data.get(section) or {}).get(key)
+        if value is None:
+            return None
+        # Text that YAML reads back unchanged stays readable; anything else (bools, numbers stored
+        # as strings, lists) is JSON, which YAML parses back to the identical value on revert.
+        return value if isinstance(value, str) and yaml.safe_load(value) == value else json.dumps(value)
+
+    def _set_raw(self, path: Path, writes: list[tuple[str, str, str | None]]) -> None:
+        data = (yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else None) or {}
+        for section, key, value in writes:
+            node = data.setdefault(section, {})
+            if value is None:
+                node.pop(key, None)
+            else:
+                node[key] = yaml.safe_load(value) if value.strip() else value  # "300" -> 300, "true" -> True
         path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
-        return None if old is None else str(old)
 
     def launch_args(self, game: str | None, fullscreen: bool) -> list[str]:
         return ["--no-gui", game] if game else []
@@ -185,14 +197,8 @@ class Eden(IniEmulator):
         roaming = env_path("APPDATA", "eden", "config", "qt-config.ini")
         return portable + ([roaming] if roaming else [])
 
-    def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None:
-        from .ini_store import IniDocument
-
-        doc = IniDocument.load(path) if path.exists() else IniDocument()
-        old = doc.set(section, key, value)
-        doc.set(section, f"{key}\\default", "false")
-        doc.save(path)
-        return old
+    def _expand(self, section: str, key: str, value: str) -> list[tuple[str, str, str]]:
+        return [(section, key, value), (section, f"{key}\\default", "false")]
 
     def launch_args(self, game: str | None, fullscreen: bool) -> list[str]:
         return (["-f"] if fullscreen else []) + (["-g", game] if game else [])

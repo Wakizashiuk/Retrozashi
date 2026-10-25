@@ -8,11 +8,12 @@ import time
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
-                               QMainWindow, QMessageBox, QPushButton, QSplitter, QTextBrowser, QVBoxLayout,
-                               QWidget)
+                               QMainWindow, QMessageBox, QPushButton, QSplitter, QTabWidget, QTextBrowser,
+                               QVBoxLayout, QWidget)
 
 from ..core.events import AgentEvent, EventKind
 from ..core.runtime import Runtime
+from .profiles_panel import ProfilesPanel
 
 STATUS_STYLE = {
     "idle": ("IDLE", "#2e7d32"), "thinking": ("THINKING", "#1565c0"), "acting": ("CONTROLLING INPUT", "#e65100"),
@@ -42,7 +43,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Retrozashi")
         self.resize(1200, 760)
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self._build_chat())
+        self.profiles_panel = ProfilesPanel(runtime.profiles, runtime.registry)
+        tabs = QTabWidget()
+        tabs.addTab(self._build_chat(), "💬 Chat")
+        tabs.addTab(self.profiles_panel, "🎮 Profiles")
+        splitter.addWidget(tabs)
         splitter.addWidget(self._build_status())
         splitter.setSizes([700, 500])
         self.setCentralWidget(splitter)
@@ -173,6 +178,8 @@ class MainWindow(QMainWindow):
         elif ev.kind in (EventKind.ACTION, EventKind.TOOL):
             self._log(("🖱 " if ev.kind == EventKind.ACTION else "⚙ ") + ev.message)
             self.target.setText(f"Target: {self.runtime.screen.describe_target()}")
+            if ev.kind == EventKind.TOOL:
+                self.profiles_panel.refresh()  # profile launched/reverted (by the panel, Claude, or a watcher)
         elif ev.kind == EventKind.SCREENSHOT:
             images = [b for b in ev.data["content"] if b["type"] == "image"]
             if not images:

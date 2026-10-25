@@ -105,8 +105,16 @@ class EmulatorAdapter(ABC):
     @abstractmethod
     def read_settings(self, section: str | None = None) -> dict[str, Any]: ...
 
+    # Raw access to one file. A value of None means "remove the key".
     @abstractmethod
-    def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None: ...
+    def _get_raw(self, path: Path, section: str, key: str) -> str | None: ...
+
+    @abstractmethod
+    def _set_raw(self, path: Path, writes: list[tuple[str, str, str | None]]) -> None: ...
+
+    def _expand(self, section: str, key: str, value: str) -> list[tuple[str, str, str]]:
+        """The raw writes one logical setting needs (e.g. Eden also sets `key\\default`)."""
+        return [(section, key, value)]
 
     def target_file(self, section: str) -> Path | None:
         """The file a write to `section` lands in (multi-file emulators override this)."""
@@ -122,15 +130,41 @@ class EmulatorAdapter(ABC):
             raise EmulatorBusy(f"{self.display_name} is running and would overwrite the change on exit. "
                                "Close it first (close_emulator), or change the setting through its GUI.")
 
-    def set_setting(self, section: str, key: str, value: str) -> dict[str, Any]:
+    def apply_settings(self, settings: list[tuple[str, str, str]]) -> list[dict[str, Any]]:
+        """Write several settings with one backup per touched file. Returns every raw change
+        ({file, section, key, old, new, backup}) so `revert_changes` can put back exactly these keys."""
         self._ensure_closed()
-        path = self.target_file(section)
-        if path is None:
-            raise FileNotFoundError(f"No {self.display_name} config file found. Launch it once so it creates one.")
-        bak = backups.backup_file(path) if path.exists() else None
-        old = self._write_setting(path, section, key, value)
-        return {"file": str(path), "section": section, "key": key, "old": old, "new": value,
-                "backup": str(bak) if bak else None}
+        by_file: dict[Path, list[tuple[str, str, str]]] = {}
+        for section, key, value in settings:
+            path = self.target_file(section)
+            if path is None:
+                raise FileNotFoundError(f"No {self.display_name} config file found. Launch it once so it creates one.")
+            by_file.setdefault(path, []).extend(self._expand(section, key, value))
+        changes: list[dict[str, Any]] = []
+        for path, writes in by_file.items():
+            bak = backups.backup_file(path) if path.exists() else None
+            for s, k, v in writes:
+                old = self._get_raw(path, s, k) if path.exists() else None
+                changes.append({"file": str(path), "section": s, "key": k, "old": old, "new": v,
+                                "backup": str(bak) if bak else None})
+            self._set_raw(path, writes)
+        return changes
+
+    def revert_changes(self, changes: list[dict[str, Any]]) -> None:
+        """Undo `apply_settings` key by key (newest first): anything else changed meanwhile, e.g. in
+        the emulator's own menus during play, is kept. Keys that didn't exist before are removed."""
+        self._ensure_closed()
+        by_file: dict[Path, list[tuple[str, str, str | None]]] = {}
+        for c in reversed(changes):
+            by_file.setdefault(Path(c["file"]), []).append((c["section"], c["key"], c["old"]))
+        for path, writes in by_file.items():
+            if path.exists():
+                backups.backup_file(path)
+            self._set_raw(path, writes)
+
+    def set_setting(self, section: str, key: str, value: str) -> dict[str, Any]:
+        first = self.apply_settings([(section, key, value)])[0]
+        return {**first, "section": section}
 
     def list_backups(self) -> list[Path]:
         """All backups for this emulator's config files, newest first."""
@@ -177,10 +211,18 @@ class IniEmulator(EmulatorAdapter):
             return {section: doc.section(section)}
         return {s: doc.section(s) for s in doc.sections()}
 
-    def _write_setting(self, path: Path, section: str, key: str, value: str) -> str | None:
+    def _get_raw(self, path: Path, section: str, key: str) -> str | None:
+        from .ini_store import IniDocument
+
+        return IniDocument.load(path).get(section, key)
+
+    def _set_raw(self, path: Path, writes: list[tuple[str, str, str | None]]) -> None:
         from .ini_store import IniDocument
 
         doc = IniDocument.load(path) if path.exists() else IniDocument()
-        old = doc.set(section, key, value)
+        for section, key, value in writes:
+            if value is None:
+                doc.remove(section, key)
+            else:
+                doc.set(section, key, value)
         doc.save(path)
-        return old

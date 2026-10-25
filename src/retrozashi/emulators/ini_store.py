@@ -78,6 +78,13 @@ class IniDocument:
             self.lines.insert(sec_end, line)
         return None
 
+    def remove(self, section: str, key: str) -> bool:
+        idx, _ = self._find(section, key)
+        if idx is None:
+            return False
+        del self.lines[idx]
+        return True
+
     def section(self, section: str) -> dict[str, str]:
         out: dict[str, str] = {}
         current = None

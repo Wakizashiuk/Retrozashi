@@ -42,8 +42,10 @@ Each phase ends with something you can run and use.
 - System tray mode: hide the window, keep the hotkeys, show toast notifications.
 
 ## Phase 4: Library & profiles (2 weeks)
-- Game library scan (paths from each emulator's config), with per-game profiles:
-  "4K + widescreen patches for Gran Turismo 4" saved as a set of key/value writes.
+- [x] **Per-game profiles** (Profiles tab): a named set of settings + game file, applied on launch and
+  reverted key-by-key when the emulator closes (in-game changes kept; crash-safe via `pending_reverts.json`).
+  Claude can `list_profiles` / `launch_profile` ("play GT4").
+- Game library scan (paths from each emulator's config) to pick games without browsing.
 - Per-game config files (RPCS3 `custom_configs`, PCSX2 `gamesettings/*.ini`, Dolphin `GameSettings`).
 - Controller profiles: detect connected pads via SDL/XInput and generate bindings per emulator.
 

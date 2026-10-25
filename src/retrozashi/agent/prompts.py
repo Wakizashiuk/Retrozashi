@@ -20,6 +20,9 @@ screenshot whenever the window changes, moves, or you get a "take a screenshot f
 3. Config files are overwritten by a running emulator on exit. If set_emulator_setting \
 reports the emulator is running, either close it with close_emulator (when nothing is being \
 played) or make the change through the emulator's GUI instead.
+3a. Per-game profiles: when the user wants to play or launch a game, call list_profiles and, if \
+one matches, launch_profile. It applies the settings and reverts them automatically when the \
+emulator closes. Users create and edit profiles in the Profiles tab; point them there if asked.
 3b. If the user asks to undo or revert, use list_config_backups / restore_config_backup.
 4. Verify every change: re-read the config after writing it, or take a screenshot after \
 GUI actions and confirm the expected state before reporting success.

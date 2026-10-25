@@ -7,11 +7,12 @@ import threading
 
 from ..agent.loop import AgentLoop
 from ..agent.tools import NativeTools
-from ..config import Settings
+from ..config import Settings, app_data_dir
 from ..desktop.executor import ActionExecutor
 from ..desktop.screen import ScreenCapture
 from ..desktop.uia import UiaController, uia_available
 from ..emulators.registry import EmulatorRegistry
+from ..profiles import ProfileManager
 from .events import EventBus, EventKind
 from .safety import KillSwitch
 
@@ -28,13 +29,16 @@ class Runtime:
                                        settle_timeout=settings.safety.settle_timeout)
         self.registry = EmulatorRegistry(settings.emulator_paths)
         self.uia = UiaController(self.registry, self.kill) if uia_available() else None
-        self.native = NativeTools(self.registry, self.uia, self.screen)
+        data = app_data_dir()
+        self.profiles = ProfileManager(self.registry, self.bus, data / "profiles.json", data / "pending_reverts.json")
+        self.native = NativeTools(self.registry, self.uia, self.screen, profiles=self.profiles)
         self.agent = AgentLoop(settings.agent, self.bus, self.kill, self.executor, self.native)
         self._jobs: queue.Queue = queue.Queue()
         self._worker = threading.Thread(target=self._work, name="AgentWorker", daemon=True)
         self.busy = False
 
     def start(self) -> None:
+        self.profiles.recover()
         try:
             self.kill.arm_hotkey(self.settings.safety.kill_hotkey)
         except OSError as e:

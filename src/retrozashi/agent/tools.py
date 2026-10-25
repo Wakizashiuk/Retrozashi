@@ -50,6 +50,14 @@ NATIVE_TOOLS: list[dict[str, Any]] = [
           "Start an emulator, optionally booting a game. Use '' for game_path to open just the frontend.",
           {"emulator": _EMU, "game_path": {"type": "string"}, "fullscreen": {"type": "boolean"}}),
     _tool("close_emulator", "Gracefully close a running emulator so it flushes its config.", {"emulator": _EMU}),
+    _tool("list_profiles",
+          "List the user's per-game profiles (made in the Profiles panel): name, emulator, game, settings, "
+          "and which are currently applied.", {}),
+    _tool("launch_profile",
+          "Launch a game with its profile: applies the profile's settings, starts the emulator, and "
+          "automatically restores the previous settings when the emulator closes. Use this when the user "
+          "asks to play/launch/start a game that has a profile.",
+          {"name": {"type": "string", "description": "Profile name from list_profiles (case-insensitive)"}}),
     _tool("focus_emulator_window",
           "Bring an emulator window to the front and point screenshots at just that window: sharper detail, "
           "and clicks are confined to it. Take a new screenshot afterwards (coordinates change). "
@@ -80,8 +88,9 @@ UIA_TOOLS: list[dict[str, Any]] = [
 
 class NativeTools:
     def __init__(self, registry: EmulatorRegistry, uia: UiaController | None = None,
-                 screen: ScreenCapture | None = None, window_api=None) -> None:
+                 screen: ScreenCapture | None = None, window_api=None, profiles=None) -> None:
         self.registry = registry
+        self.profiles = profiles  # ProfileManager
         self.uia = uia
         self.screen = screen
         self._window_api = window_api  # (list_windows, focus_window); win32 by default
@@ -159,6 +168,18 @@ class NativeTools:
             elif name == "close_emulator":
                 self.registry.get(inp["emulator"]).close()
                 out = "Closed."
+            elif name == "list_profiles":
+                if self.profiles is None:
+                    raise ValueError("Profiles are not available")
+                active = self.profiles.active()
+                out = [{"name": p.name, "emulator": p.emulator, "game": p.game_path or None,
+                        "settings": [f"[{s.section}] {s.key} = {s.value}" for s in p.settings],
+                        "applied_now": active.get(p.emulator) == p.name, "notes": p.notes or None}
+                       for p in self.profiles.list()] or "No profiles yet. The user creates them in the Profiles tab."
+            elif name == "launch_profile":
+                if self.profiles is None:
+                    raise ValueError("Profiles are not available")
+                out = self.profiles.launch(inp["name"])
             elif name == "focus_emulator_window":
                 out = self._focus(inp["emulator"], inp.get("window_title_contains", ""))
             elif name == "ui_list_controls" and self.uia:
