@@ -35,12 +35,20 @@ def set_(tools, key, value):
     assert not err, text
 
 
-def test_backup_names_round_trip(tmp_path):
+def test_backup_names_round_trip(tmp_path, monkeypatch):
+    # Windows' clock ticks every ~15 ms, so back-to-back backups can share a timestamp.
+    from datetime import datetime
+    frozen = datetime(2026, 10, 25, 10, 50, 38, 268308)
+    monkeypatch.setattr(backups, "datetime", type("D", (), {"now": staticmethod(lambda: frozen)}))
     f = tmp_path / "config.yml"
     f.write_text("a")
-    b1, b2 = backups.backup_file(f), backups.backup_file(f)  # same second: must not collide
-    assert b1 != b2 and backups.original_of(b1) == f
-    assert backups.backups_for(f) == [b2, b1]
+    b1 = backups.backup_file(f)
+    f.write_text("b")
+    b2 = backups.backup_file(f)
+    b3 = backups.backup_file(f)
+    assert len({b1, b2, b3}) == 3 and b1.read_text() == "a"  # nothing overwritten
+    assert all(backups.original_of(b) == f for b in (b1, b2, b3))
+    assert backups.backups_for(f) == [b3, b2, b1]  # still newest first
 
 
 def test_undo_reverts_whole_request_then_previous_one(pcsx2):

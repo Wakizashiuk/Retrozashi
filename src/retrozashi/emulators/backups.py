@@ -15,6 +15,12 @@ SUFFIX = ".bak"
 def backup_file(path: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     bak = path.with_name(f"{path.name}.{stamp}{SUFFIX}")
+    # Windows' clock ticks every ~15 ms, so back-to-back writes can share a stamp. A counter keeps
+    # every snapshot, and "stamp-001" still sorts after "stamp" as a plain string.
+    n = 0
+    while bak.exists():
+        n += 1
+        bak = path.with_name(f"{path.name}.{stamp}-{n:03d}{SUFFIX}")
     shutil.copy2(path, bak)
     return bak
 
