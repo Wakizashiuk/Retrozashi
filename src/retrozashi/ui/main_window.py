@@ -7,8 +7,9 @@ import time
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
-                               QPushButton, QSplitter, QTextBrowser, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
+                               QMainWindow, QMessageBox, QPushButton, QSplitter, QTextBrowser, QVBoxLayout,
+                               QWidget)
 
 from ..core.events import AgentEvent, EventKind
 from ..core.runtime import Runtime
@@ -16,6 +17,7 @@ from ..core.runtime import Runtime
 STATUS_STYLE = {
     "idle": ("IDLE", "#2e7d32"), "thinking": ("THINKING", "#1565c0"), "acting": ("CONTROLLING INPUT", "#e65100"),
     "halted": ("HALTED", "#b71c1c"), "listening": ("LISTENING", "#6a1b9a"), "transcribing": ("TRANSCRIBING", "#6a1b9a"),
+    "loading voice model": ("LOADING VOICE MODEL", "#6a1b9a"),
 }
 
 
@@ -91,9 +93,13 @@ class MainWindow(QMainWindow):
         self.shot.setMinimumHeight(220)
         self.shot.setStyleSheet("background:#111;color:#888")
         undo = QPushButton("↶  Undo last request's config changes", clicked=self.runtime.undo_last)
+        key = QPushButton("🔑  API key", clicked=self.ask_api_key)
         lay.addWidget(self.status)
         lay.addWidget(kill)
-        lay.addWidget(undo)
+        row = QHBoxLayout()
+        row.addWidget(undo, 1)
+        row.addWidget(key)
+        lay.addLayout(row)
         lay.addWidget(QLabel("Agent controls:"))
         lay.addWidget(self.monitor)
         lay.addWidget(self.target)
@@ -118,6 +124,25 @@ class MainWindow(QMainWindow):
     def _pick_monitor(self, _index: int) -> None:
         self.runtime.set_monitor(self.monitor.currentData())
         self.target.setText(f"Target: {self.runtime.screen.describe_target()}")
+
+    def ask_api_key(self) -> None:
+        key, ok = QInputDialog.getText(
+            self, "Anthropic API key",
+            "Paste your Anthropic API key (console.anthropic.com → API keys).\n"
+            "It's stored in Windows Credential Manager, not in a file.",
+            QLineEdit.Password)
+        if not ok or not key.strip():
+            return
+        from ..credentials import looks_like_api_key
+
+        if not looks_like_api_key(key):
+            QMessageBox.warning(self, "Retrozashi", "That doesn't look like an Anthropic API key (sk-ant-...).")
+            return
+        try:
+            self.runtime.set_api_key(key)
+            self._log("🔑 API key saved to Windows Credential Manager")
+        except Exception as e:
+            QMessageBox.critical(self, "Retrozashi", f"Couldn't save the key: {e}")
 
     def _toggle_mic(self) -> None:
         if self.voice:

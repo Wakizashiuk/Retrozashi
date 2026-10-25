@@ -1,19 +1,122 @@
-"""Entry point: `python -m retrozashi` or the packaged Retrozashi.exe."""
+"""Entry point: `python -m retrozashi` or the packaged Retrozashi.exe.
+
+    Retrozashi.exe                      normal start
+    Retrozashi.exe --self-test out.json check the bundle (imports, Qt, capture, UIA, voice, keyring) and exit
+"""
 from __future__ import annotations
 
+import json
+import logging
 import sys
+import traceback
+
+log = logging.getLogger("retrozashi")
+
+
+def _setup_logging() -> str:
+    from .config import app_data_dir
+
+    path = app_data_dir() / "retrozashi.log"
+    # A windowed (no-console) exe has sys.stdout/stderr = None; anything that prints, such as the
+    # Hugging Face progress bar during the Whisper model download, would crash. Send it to the log.
+    stream = open(path, "a", encoding="utf-8", buffering=1)
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+    logging.basicConfig(level=logging.INFO, stream=stream,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    return str(path)
+
+
+def _install_excepthook(log_path: str) -> None:
+    def hook(exc_type, exc, tb):
+        log.error("Unhandled exception", exc_info=(exc_type, exc, tb))
+        try:
+            from PySide6.QtWidgets import QApplication, QMessageBox
+            if QApplication.instance():
+                QMessageBox.critical(None, "Retrozashi",
+                                     f"{exc_type.__name__}: {exc}\n\nDetails were written to:\n{log_path}")
+        except Exception:
+            pass
+
+    sys.excepthook = hook
+
+
+def self_test(out_path: str) -> int:
+    """Exercise every bundled dependency without showing UI. Used by CI on the frozen exe."""
+    results: dict[str, str] = {}
+
+    def check(name, fn):
+        try:
+            results[name] = "ok: " + str(fn() or "")
+        except Exception as e:
+            results[name] = f"FAIL: {type(e).__name__}: {e}"
+
+    def qt():
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication(sys.argv[:1])
+        return app.platformName()
+
+    def capture():
+        from .desktop.screen import ScreenCapture
+        f = ScreenCapture(1).capture()
+        return f"{f.width}x{f.height}"
+
+    def win32():
+        import ctypes
+        from .desktop.win32 import INPUT, IS_WINDOWS
+        return f"windows={IS_WINDOWS} sizeof(INPUT)={ctypes.sizeof(INPUT)}"
+
+    def uia():
+        from .desktop.uia import PywinautoBackend, uia_available
+        assert uia_available(), "pywinauto not importable"
+        PywinautoBackend()
+
+    def voice():
+        import ctranslate2
+        import faster_whisper  # noqa: F401  (imports av / onnxruntime too)
+        import sounddevice  # noqa: F401
+        return f"ctranslate2 {ctranslate2.__version__}"
+
+    def credentials():
+        import keyring
+        return type(keyring.get_keyring()).__name__
+
+    def agent():
+        import anthropic
+        from .agent.tools import NativeTools
+        from .emulators.registry import EmulatorRegistry
+        names = [t["name"] for t in NativeTools(EmulatorRegistry()).definitions]
+        return f"anthropic {anthropic.__version__}, {len(names)} native tools"
+
+    for name, fn in [("qt", qt), ("win32", win32), ("capture", capture), ("uia", uia),
+                     ("voice", voice), ("credentials", credentials), ("agent", agent)]:
+        check(name, fn)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+    return 0 if all(v.startswith("ok") for v in results.values()) else 1
 
 
 def main() -> int:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--self-test":
+        return self_test(sys.argv[2])
+
+    log_path = _setup_logging()
+    _install_excepthook(log_path)
+    log.info("Starting Retrozashi")
+
     from .desktop.win32 import enable_dpi_awareness
 
     enable_dpi_awareness()  # must run before Qt creates any window
 
+    from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
     from .config import Settings
     from .core.events import EventKind
     from .core.runtime import Runtime
+    from .credentials import get_api_key
     from .ui.main_window import MainWindow
 
     settings = Settings.load()
@@ -28,6 +131,8 @@ def main() -> int:
             voice = VoiceInput(settings.voice, on_text=lambda t: None)
         except ImportError:
             runtime.bus.publish(EventKind.ERROR, "Voice disabled: pip install retrozashi[voice]")
+        except OSError as e:  # sounddevice: PortAudio missing or no input device
+            runtime.bus.publish(EventKind.ERROR, f"Voice disabled: {e}")
 
     window = MainWindow(runtime, voice)
     if voice:
@@ -44,6 +149,8 @@ def main() -> int:
 
     runtime.start()
     window.show()
+    if get_api_key() is None:
+        QTimer.singleShot(0, window.ask_api_key)  # first run: ask once the window is up
     return app.exec()
 
 

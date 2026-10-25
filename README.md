@@ -10,14 +10,27 @@ Claude Computer Use (screenshots + mouse/keyboard) for everything else.
 
 **Kill switch: `Ctrl+Alt+K`** halts all automated mouse and keyboard input immediately, even over fullscreen games.
 
-## Quick start (Windows, Python 3.11+)
+## Get the .exe
+
+Every CI run on GitHub builds **`Retrozashi-win64.zip`**: open the run's summary page and download it
+from *Artifacts*. Unzip it anywhere and run `Retrozashi\Retrozashi.exe`. On first launch it asks
+for your Anthropic API key and stores it in **Windows Credential Manager**. The first voice command
+downloads the Whisper model (~250 MB, once).
+
+Build it yourself:
+```powershell
+.\scripts\build.ps1            # -> dist\Retrozashi\Retrozashi.exe + dist\Retrozashi-win64.zip
+.\scripts\build.ps1 -NoVoice   # smaller build without speech-to-text
+```
+Logs: `%APPDATA%\Retrozashi\retrozashi.log`. Check a bundle with `Retrozashi.exe --self-test report.json`.
+
+## Run from source (Windows, Python 3.11+)
 
 ```powershell
 git clone <this repo>; cd Retrozashi
 py -m venv .venv; .venv\Scripts\activate
 pip install -e ".[voice,uia,dev]"
-$env:ANTHROPIC_API_KEY = "sk-ant-..."
-python -m retrozashi
+python -m retrozashi   # asks for your API key on first run (or set $env:ANTHROPIC_API_KEY)
 ```
 
 Optional: copy `settings.example.toml` to `%APPDATA%\Retrozashi\settings.toml` and adjust it.

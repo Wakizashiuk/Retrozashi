@@ -72,6 +72,8 @@ class VoiceInput:
         if self._model is None:
             from faster_whisper import WhisperModel
 
+            # First use downloads the model (~250 MB for small.en) into the Hugging Face cache.
+            self.on_state("loading voice model")
             device = self.settings.device
             if device == "auto":
                 try:
@@ -79,8 +81,15 @@ class VoiceInput:
                     device = "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
                 except Exception:
                     device = "cpu"
-            compute = "float16" if device == "cuda" else "int8"
-            self._model = WhisperModel(self.settings.whisper_model, device=device, compute_type=compute)
+            try:
+                compute = "float16" if device == "cuda" else "int8"
+                self._model = WhisperModel(self.settings.whisper_model, device=device, compute_type=compute)
+            except Exception:
+                if device != "cuda":
+                    raise
+                # A GPU is present but the CUDA/cuDNN runtime DLLs aren't: run on CPU instead.
+                self._model = WhisperModel(self.settings.whisper_model, device="cpu", compute_type="int8")
+            self.on_state("transcribing")
         return self._model
 
     def _transcribe(self, audio) -> None:
@@ -92,5 +101,8 @@ class VoiceInput:
             text = " ".join(s.text.strip() for s in segments).strip()
             if text:
                 self.on_text(text)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Transcription failed")
         finally:
             self.on_state("idle")

@@ -30,3 +30,28 @@ jobs:
           fi
       - name: Test
         run: python -m pytest -v
+
+  build-exe:
+    name: Build Retrozashi.exe
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Build and self-test
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Retrozashi-win64
+          path: dist/Retrozashi-win64.zip
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-report
+          path: dist/selftest.json
+          if-no-files-found: ignore

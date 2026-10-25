@@ -48,8 +48,10 @@ Each phase ends with something you can run and use.
 - Controller profiles: detect connected pads via SDL/XInput and generate bindings per emulator.
 
 ## Phase 5: Ship it
-- `pyinstaller --noconfirm --windowed --name Retrozashi --collect-all faster_whisper src/retrozashi/__main__.py`
-- Store the API key in Windows Credential Manager (`keyring`) instead of an env var.
+- [x] PyInstaller one-folder build (`packaging/Retrozashi.spec`, `scripts/build.ps1`), self-tested and zipped by CI.
+- [x] API key in Windows Credential Manager (`keyring`), with a first-run prompt and a 🔑 button.
+- [x] Windowed-exe hardening: log file, crash dialog, stdout/stderr redirect.
+- App icon + version resource in the exe.
 - Code-sign the exe (optional) to avoid SmartScreen prompts.
 - Auto-update check against GitHub Releases.
 

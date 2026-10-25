@@ -17,7 +17,8 @@ Claude Computer Use when it can't. A hotkey kill switch can halt it at any time.
 | Process mgmt | **psutil** + `subprocess` | Find, launch and gracefully close emulators |
 | Speech-to-text | **faster-whisper** (CTranslate2), local | Offline, GPU-accelerated, and an `initial_prompt` biases it towards "PCSX2", "DuckStation" etc. |
 | Audio | **sounddevice** | Simple 16 kHz mono capture |
-| Packaging | **PyInstaller** (one-folder) → `Retrozashi.exe` | One-folder starts faster than one-file and keeps the Whisper model cacheable |
+| Packaging | **PyInstaller** (one-folder) → `Retrozashi.exe` | One-folder starts in ~1 s (one-file re-extracts ~400 MB every launch) and trips antivirus less; no UPX for the same reason |
+| Secrets | **keyring** → Windows Credential Manager | API key never sits in a file or env var; first-run prompt + 🔑 button |
 
 ## 2. Component map
 
@@ -188,7 +189,20 @@ To add an app, subclass `IniEmulator` (or `EmulatorAdapter`), fill in `process_n
 **Tip:** run the emulators **un-elevated**. Windows UIPI silently blocks `SendInput` into admin
 windows; the executor surfaces that as an error.
 
-## 7. Voice
+## 7. Packaging
+
+- `packaging/Retrozashi.spec` bundles the optional extras when they're installed: faster-whisper's
+  VAD model, the native DLLs for ctranslate2, onnxruntime, PyAV and PortAudio, and pywinauto/comtypes
+  submodules. Unused Qt modules (WebEngine, QML, Multimedia…) are excluded.
+- The exe is windowed (`console=False`) and never elevated (`uac_admin=False`). Elevation would change
+  the UIPI rules that `SendInput` depends on.
+- With no console, `sys.stdout`/`sys.stderr` are `None`. They're redirected to
+  `%APPDATA%\Retrozashi\retrozashi.log`, so libraries that print (such as the Hugging Face download
+  progress bar) can't crash the app. Unhandled exceptions are logged and shown in a dialog.
+- `Retrozashi.exe --self-test report.json` checks Qt, Win32, capture, UIA, voice, keyring and the agent
+  inside the frozen bundle. CI runs it on every build before uploading `Retrozashi-win64.zip`.
+
+## 8. Voice
 
 - Push-to-talk **toggle** on a global hotkey (default Ctrl+Alt+Space) or the 🎤 button. Recording auto-stops at 20 s.
 - 16 kHz mono → `faster-whisper` with VAD filter, `beam_size=5`, and an `initial_prompt` listing

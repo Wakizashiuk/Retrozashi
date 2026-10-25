@@ -47,6 +47,12 @@ class Runtime:
             return
         self._jobs.put(text)
 
+    def set_api_key(self, key: str) -> None:
+        from ..credentials import set_api_key
+
+        set_api_key(key)
+        self.agent.reset_client()
+
     def set_monitor(self, index: int) -> None:
         self.screen.set_monitor(index)
 

@@ -41,11 +41,24 @@ class AgentLoop:
         self.kill = kill
         self.executor = executor
         self.native = native
-        self.client = client or anthropic.Anthropic()  # reads ANTHROPIC_API_KEY / `ant auth login` profile
+        self._client = client  # created lazily, so a missing key doesn't stop the app from starting
         self.messages: list[dict[str, Any]] = []  # append-only: never edit earlier turns
         self._use_fallback = settings.refusal_fallback
 
     # ---- public -------------------------------------------------------------
+    @property
+    def client(self) -> anthropic.Anthropic:
+        if self._client is None:
+            from ..credentials import get_api_key
+
+            # None lets the SDK fall back to its own lookup (e.g. an `ant auth login` profile).
+            self._client = anthropic.Anthropic(api_key=get_api_key())
+        return self._client
+
+    def reset_client(self) -> None:
+        """Call after the API key changes."""
+        self._client = None
+
     def reset(self) -> None:
         self.messages = []
 
@@ -85,8 +98,14 @@ class AgentLoop:
             self.bus.publish(EventKind.ERROR, f"Network error: {e}")
         except anthropic.RateLimitError:
             self.bus.publish(EventKind.ERROR, "Rate limited. Wait a moment and retry.")
+        except anthropic.AuthenticationError:
+            self.bus.publish(EventKind.ERROR, "Your API key was rejected. Click 🔑 API key to replace it.")
+            self.reset_client()
         except anthropic.APIStatusError as e:
             self.bus.publish(EventKind.ERROR, f"API error {e.status_code}: {e.message}")
+        except anthropic.AnthropicError as e:  # e.g. no credentials found at all
+            self.bus.publish(EventKind.ERROR, f"{e}. Click 🔑 API key to add one.")
+            self.reset_client()
         finally:
             self.bus.publish(EventKind.STATUS, "halted" if self.kill.halted else "idle")
 
