@@ -228,6 +228,29 @@ so config writes come first and computer use is the fallback.
   Pro Controller). The guide covers Steam Input conflicts and 8BitDo modes. Diffs also cover
   `config/input/*.ini` profiles.
 
+### Streaming: Moonlight + Vibepollo (`controller_sets.py`, `streaming.py`, `desktop/pads.py`)
+
+The user plays through Moonlight with Vibepollo, a Sunshine-family host, and uses Retrozashi only
+during setup. Two consequences follow:
+
+- **Display:** Vibepollo streams a virtual display at each client's resolution, so emulators are made
+  *stream-ready* per emulator on request (`emulator_guide <id> streaming`): borderless fullscreen on launch,
+  no pause on focus loss, no exit confirmations, and pad hotkeys for menu and quit. Saved globally.
+- **Controllers:** emulators see Vibepollo's virtual pad, whose type follows the client pad in Auto mode
+  (Xbox 360 for X-input pads, DS4/DualSense for PlayStation pads). Eden (GUID), Dolphin (device name) and
+  RPCS3 (handler) bind to one device type.
+  - Each adapter declares its `controller_scope()`, the keys or whole files that make up the mapping.
+  - `save_controller_set` captures that scope, tied to the VID:PIDs connected now.
+  - `ControllerSets.sync(pads)` restores the best-matching set per emulator. Keys outside the set are
+    removed, everything else is untouched, and backups are made first.
+- **Stream start:** `install_stream_sync` adds `Retrozashi.exe --sync-controllers` to Vibepollo's
+  `global_prep_cmd` in `config/sunshine.conf`. A JSON-aware edit keeps other prep commands, and a backup
+  is made. Program Files needs admin, so a one-off elevated helper (`--install-stream-sync`, UAC prompt)
+  does just that edit, and the app itself never runs elevated. The prep command spawns a detached worker
+  and returns at once, so the stream isn't delayed. The worker polls the pads (cfgmgr32 present HID
+  devices) for ~45 s and syncs whenever a known pad appears, because Vibepollo creates the virtual pad
+  only after the stream starts.
+
 ### Per-game profiles (`profiles.py`, `ui/profiles_panel.py`)
 
 A profile is `{name, emulator, game_path, fullscreen, settings[section,key,value], notes}`, stored in

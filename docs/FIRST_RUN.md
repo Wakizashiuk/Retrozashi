@@ -14,6 +14,7 @@ order. Each takes about 15–30 minutes the first time and is a single sentence 
 | Dolphin | GameCube / Wii | [Dolphin](#dolphin-gamecube--wii) |
 | RPCS3 | PS3 | [RPCS3](#rpcs3-ps3) |
 | RetroArch | Many (via cores) | [RetroArch](#retroarch-many-consoles) |
+| Streaming | Moonlight + Vibepollo | [Streaming](#streaming-with-moonlight--vibepollo) |
 
 ---
 
@@ -186,6 +187,44 @@ Games added with core "DETECT" have no core yet. Retrozashi asks which core, or 
 
 ✅ **Test:** launch a game from RetroArch. Check the pad layout, the menu combo (L3+R3), and that 3D games
 look sharp. Quick Menu → Core Options shows the resolution you set.
+
+---
+
+## Streaming with Moonlight + Vibepollo
+
+You play through **Moonlight**, with **Vibepollo** as the host on this PC. Retrozashi is only needed
+during setup. After that, everything it saves works on its own while you stream.
+
+**Why this needs a step.** Over Moonlight, emulators don't see your real pad. They see Vibepollo's
+**virtual pad**, and in Auto mode its type follows the pad in your hand: a DualSense becomes a virtual
+DS4/DualSense, and an 8BitDo in X-input mode becomes a virtual Xbox 360 pad. PCSX2, DuckStation and
+RetroArch cope with that by themselves. Eden, Dolphin and RPCS3 bind to one specific device, so
+Retrozashi keeps a **controller set** per pad and switches them automatically at every stream start.
+
+**1. Hook up Vibepollo (once)**
+🗣️ *"Install the stream controller sync into Vibepollo."*
+Windows asks for admin permission once, because Vibepollo's config lives in Program Files. Retrozashi
+adds a prep command that runs `Retrozashi.exe --sync-controllers` at each stream start, keeps a backup
+of Vibepollo's config, and leaves your other prep commands untouched. Then **restart Vibepollo**.
+
+**2. Make an emulator stream-ready (one at a time, your choice)**
+🗣️ *"Make Eden stream-ready."* It switches on borderless fullscreen on launch, keeps the game running
+when focus changes, turns off exit confirmations, and adds a pad combo for the menu and quit. Saved
+globally.
+
+**3. Map each pad through the stream (per emulator)**
+1. Start a Moonlight session **with your DualSense**. Use Retrozashi through the stream, or at the PC.
+2. 🗣️ *"Which controllers are connected?"* It should list the virtual DS4/DualSense.
+3. 🗣️ *"Set up this controller in Eden as a Pro Controller with motion, then save it as the DualSense
+   controller set."*
+4. End the session, start one **with your 8BitDo**, and repeat: *"…save it as the 8BitDo controller set."*
+5. Do the same for Dolphin and RPCS3. It's optional for the others, but keeps hotkeys per pad.
+
+✅ **Test:** start a stream with each pad and launch a game. Controls should just work. Retrozashi
+doesn't need to be open. Results are logged in `%APPDATA%\Retrozashi\retrozashi.log`.
+
+**Resolution:** Vibepollo's virtual display already matches each Moonlight client. Emulators set to
+borderless fullscreen fill it automatically. Internal resolution (upscaling) stays whatever you set.
 
 ---
 

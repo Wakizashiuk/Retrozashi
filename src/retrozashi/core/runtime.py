@@ -8,6 +8,7 @@ import threading
 from ..agent.loop import AgentLoop
 from ..agent.tools import NativeTools
 from ..config import Settings, app_data_dir
+from ..controller_sets import ControllerSets
 from ..desktop.executor import ActionExecutor
 from ..desktop.screen import ScreenCapture
 from ..desktop.uia import UiaController, uia_available
@@ -32,8 +33,10 @@ class Runtime:
         self.registry = EmulatorRegistry(settings.emulator_paths, remembered_paths=data / "emulator_paths.json")
         self.uia = UiaController(self.registry, self.kill) if uia_available() else None
         self.profiles = ProfileManager(self.registry, self.bus, data / "profiles.json", data / "pending_reverts.json")
+        self.controller_sets = ControllerSets(self.registry, data / "controller_sets.json")
         self.native = NativeTools(self.registry, self.uia, self.screen, profiles=self.profiles,
-                                  learned=LearnedSettings(data / "learned_settings.json"))
+                                  learned=LearnedSettings(data / "learned_settings.json"),
+                                  controller_sets=self.controller_sets)
         self.agent = AgentLoop(settings.agent, self.bus, self.kill, self.executor, self.native)
         self._jobs: queue.Queue = queue.Queue()
         self._worker = threading.Thread(target=self._work, name="AgentWorker", daemon=True)

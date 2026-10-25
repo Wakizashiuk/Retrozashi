@@ -14,7 +14,7 @@ import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import psutil
 
@@ -89,6 +89,11 @@ class EmulatorAdapter(ABC):
 
     def extra_watch_files(self) -> list[Path]:
         """Saved input profiles etc. that diffs should also cover (global view only)."""
+        return []
+
+    def controller_scope(self) -> list[tuple[Path, Callable[[str, str], bool] | None]]:
+        """Where this emulator keeps its controller mapping, for controller sets: (file, filter) pairs.
+        filter(section, key) selects keys inside a shared file; None means the whole file is mapping."""
         return []
 
     def watch_files(self) -> list[Path]:

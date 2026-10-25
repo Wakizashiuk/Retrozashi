@@ -13,6 +13,8 @@ Claude Computer Use (screenshots + mouse/keyboard) for everything else.
 
 > "Play GT4" → launches your **GT4 profile**: applies its settings (4K, Vulkan…), boots the game, and puts your normal settings back when PCSX2 closes. Profiles are made in the 🎮 Profiles tab.
 
+> Streaming with **Moonlight + Vibepollo**? Retrozashi makes each emulator stream-ready on request and switches controller mappings automatically at every stream start to match Vibepollo's virtual pad.
+
 **Kill switch: `Ctrl+Alt+K`** halts all automated mouse and keyboard input immediately, even over fullscreen games.
 
 ## Get the .exe

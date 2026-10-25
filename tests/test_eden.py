@@ -139,7 +139,7 @@ def test_learn_by_diff_then_remember(eden):
         key="resolution_setup", value="5", meaning="Graphics > Resolution")
     eden_info = next(e for e in run(tools, "list_emulators") if e["id"] == "eden")
     assert eden_info["learned_settings"]["Resolution 3x"]["value"] == "5"
-    assert set(eden_info["guides"]) == {"controllers", "upscaling", "per_game"}
+    assert set(eden_info["guides"]) == {"controllers", "upscaling", "per_game", "streaming"}
 
 
 def test_guides_and_game_list(eden):

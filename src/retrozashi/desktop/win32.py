@@ -200,6 +200,29 @@ def focus_window(hwnd: int) -> bool:
     return bool(user32.SetForegroundWindow(h))
 
 
+class SHELLEXECUTEINFOW(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("fMask", wintypes.ULONG), ("hwnd", wintypes.HWND),
+                ("lpVerb", wintypes.LPCWSTR), ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
+                ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int), ("hInstApp", wintypes.HINSTANCE),
+                ("lpIDList", ctypes.c_void_p), ("lpClass", wintypes.LPCWSTR), ("hkeyClass", wintypes.HKEY),
+                ("dwHotKey", wintypes.DWORD), ("hIconOrMonitor", wintypes.HANDLE), ("hProcess", wintypes.HANDLE)]
+
+
+def run_elevated(exe: str, params: str, timeout_ms: int = 120_000) -> int:
+    """Run one command as administrator (the user sees a UAC prompt) and return its exit code.
+    Retrozashi itself never runs elevated: that would change the UIPI rules SendInput relies on."""
+    info = SHELLEXECUTEINFOW(cbSize=ctypes.sizeof(SHELLEXECUTEINFOW), fMask=0x40,  # SEE_MASK_NOCLOSEPROCESS
+                             lpVerb="runas", lpFile=exe, lpParameters=params, nShow=0)
+    if not ctypes.WinDLL("shell32").ShellExecuteExW(ctypes.byref(info)):
+        raise PermissionError("Administrator permission was declined")
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.WaitForSingleObject(info.hProcess, timeout_ms)
+    code = wintypes.DWORD()
+    kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(code))
+    kernel32.CloseHandle(info.hProcess)
+    return code.value
+
+
 def exclude_from_capture(hwnd: int) -> None:
     """Hide Retrozashi's own window from screenshots (Win10 2004+), so Claude never
     sees, or clicks on, its own control panel."""

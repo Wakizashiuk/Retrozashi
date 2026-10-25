@@ -2,6 +2,8 @@
 
     Retrozashi.exe                      normal start
     Retrozashi.exe --self-test out.json check the bundle (imports, Qt, capture, UIA, voice, keyring) and exit
+    Retrozashi.exe --sync-controllers   Vibepollo prep command: start a background controller sync, return
+    Retrozashi.exe --install-stream-sync <sunshine.conf> <command>   (elevated helper) add the prep command
 """
 from __future__ import annotations
 
@@ -79,6 +81,10 @@ def self_test(out_path: str) -> int:
         import sounddevice  # noqa: F401
         return f"ctranslate2 {ctranslate2.__version__}"
 
+    def pads():
+        from .desktop.pads import connected_pads
+        return f"{len(connected_pads())} controller(s) connected"
+
     def credentials():
         import keyring
         return type(keyring.get_keyring()).__name__
@@ -91,16 +97,49 @@ def self_test(out_path: str) -> int:
         return f"anthropic {anthropic.__version__}, {len(names)} native tools"
 
     for name, fn in [("qt", qt), ("win32", win32), ("capture", capture), ("uia", uia),
-                     ("voice", voice), ("credentials", credentials), ("agent", agent)]:
+                     ("voice", voice), ("pads", pads), ("credentials", credentials), ("agent", agent)]:
         check(name, fn)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     return 0 if all(v.startswith("ok") for v in results.values()) else 1
 
 
+def headless(argv: list[str]) -> int | None:
+    """Command-line modes that never open a window. None = not a headless invocation."""
+    if len(argv) >= 3 and argv[1] == "--self-test":
+        return self_test(argv[2])
+    if len(argv) >= 2 and argv[1] == "--sync-controllers":
+        from .streaming import start_background_sync
+        start_background_sync()
+        return 0  # return at once: Vibepollo waits for prep commands before starting the stream
+    if len(argv) >= 2 and argv[1] == "--sync-controllers-worker":
+        _setup_logging()
+        from .config import Settings, app_data_dir
+        from .controller_sets import ControllerSets
+        from .desktop.pads import connected_pads
+        from .emulators.registry import EmulatorRegistry
+        from .streaming import sync_worker
+
+        data = app_data_dir()
+        registry = EmulatorRegistry(Settings.load().emulator_paths, remembered_paths=data / "emulator_paths.json")
+        sets = ControllerSets(registry, data / "controller_sets.json")
+        sync_worker(sets, connected_pads, int(argv[2]) if len(argv) > 2 else 45, log=log.info)
+        return 0
+    if len(argv) >= 4 and argv[1] == "--install-stream-sync":
+        from pathlib import Path
+        from .streaming import install_prep_command
+        try:
+            install_prep_command(Path(argv[2]), argv[3])
+            return 0
+        except Exception:
+            return 1
+    return None
+
+
 def main() -> int:
-    if len(sys.argv) >= 3 and sys.argv[1] == "--self-test":
-        return self_test(sys.argv[2])
+    code = headless(sys.argv)
+    if code is not None:
+        return code
 
     log_path = _setup_logging()
     _install_excepthook(log_path)

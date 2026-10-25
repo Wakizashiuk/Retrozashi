@@ -71,7 +71,7 @@ def test_global_settings_keep_retroarch_format(ra):
     assert 'video_driver = "vulkan"\r\n' in raw and 'input_joypad_driver = "sdl2"\r\n' in raw   # quoted, CRLF kept
     assert raw.startswith("# RetroArch config")
     info = next(e for e in run(tools, "list_emulators") if e["id"] == "retroarch")
-    assert info["per_game"] and set(info["guides"]) == {"controllers", "upscaling", "per_game"}
+    assert info["per_game"] and set(info["guides"]) == {"controllers", "upscaling", "per_game", "streaming"}
 
 
 def test_list_games_resolves_cores_and_ids(ra):

@@ -61,6 +61,12 @@ Each phase ends with something you can run and use.
 - [ ] RetroArch network commands (UDP 55355) to change settings while a game runs.
 - [ ] Eden on the user's PC: run the controllers/upscaling guides once, record learned values.
 
+## Phase 4c: Streaming (Moonlight + Vibepollo)
+- [x] Stream-ready guide per emulator (borderless fullscreen, no focus pause, no exit prompts, pad hotkeys).
+- [x] Controller sets per virtual pad type + automatic sync at stream start (Vibepollo prep command,
+  detached worker), installed by an elevated one-off helper.
+- [ ] Confirm Vibepollo's virtual pad IDs (and its optional own gamepad driver) on the user's PC.
+
 ## Phase 5: Ship it
 - [x] PyInstaller one-folder build (`packaging/Retrozashi.spec`, `scripts/build.ps1`), self-tested and zipped by CI.
 - [x] API key in Windows Credential Manager (`keyring`), with a first-run prompt and a 🔑 button.

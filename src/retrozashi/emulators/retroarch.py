@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import EmulatorAdapter, KnownSetting as K, env_path
+from . import streaming_guides as SG
 from .cfg_store import CfgDocument
 
 _V = " (verify with snapshot/diff on this build)"
@@ -133,7 +134,7 @@ class RetroArch(EmulatorAdapter):
         K("", "reicast_internal_resolution", "Core option (Dreamcast, Flycast): e.g. 1920x1440" + _V),
         K("", "ppsspp_internal_resolution", "Core option (PSP, PPSSPP): e.g. 1920x1088" + _V),
     )
-    GUIDES = {"controllers": RA_CONTROLLERS, "upscaling": RA_UPSCALING, "per_game": RA_PER_GAME}
+    GUIDES = {"controllers": RA_CONTROLLERS, "upscaling": RA_UPSCALING, "per_game": RA_PER_GAME, "streaming": SG.RETROARCH}
     notes = ("Flat key = \"value\" files: pass section \"\". Per-game/core overrides, core options and "
              "remaps via game_id (see emulator_guide retroarch per_game). Core options appear in config "
              "only after the core has run once. Menus aren't Qt: prefer config writes.")
@@ -180,6 +181,11 @@ class RetroArch(EmulatorAdapter):
         if cfg_dir.is_dir():
             files += sorted(cfg_dir.rglob("*.cfg")) + sorted(cfg_dir.rglob("*.opt")) + sorted(cfg_dir.rglob("*.rmp"))
         return [f for f in files if f.exists()]
+
+    def controller_scope(self):
+        cfg = self.config_path() if self._game_file is None else None
+        keys = re.compile(r"input_player\d+_.*|input_joypad_driver|input_autodetect_enable|input_.*_gamepad_combo")
+        return [(cfg, lambda section, key: bool(keys.fullmatch(key)))] if cfg else []
 
     # ---- per-game / per-core ----------------------------------------------------
     _SCOPE = re.compile(r"^(?P<scope>.*?)\s*(?:\[(?P<kind>options|remap)\])?\s*$", re.IGNORECASE)

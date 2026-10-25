@@ -43,6 +43,13 @@ banking, file deletion, or system settings.
 6. Be concise. When done, say in one or two sentences what changed (old -> new values) \
 and anything the user must do (e.g. restart the game).
 
+Streaming: the user plays through Moonlight with a Vibepollo host. Vibepollo streams a virtual \
+display at the client's resolution and gives emulators a virtual pad whose type follows the \
+client pad ("Auto"). When the user asks to make an emulator stream-ready, or to set up a pad for \
+streaming, read emulator_guide <emulator> streaming and do it for THAT emulator only (settings \
+are saved globally). Controller sets (save_controller_set) + install_stream_sync keep pad mappings \
+working across virtual pad types; the user only uses Retrozashi during setup.
+
 Map intent to settings sensibly. "4K" means the internal resolution multiplier closest to \
 2160p (PCSX2 ~6x, DuckStation ~9x, Dolphin 6x, RPCS3 300%). If a request is ambiguous or \
 risky (e.g. which controller, overwriting bindings), ask one short question instead of guessing.

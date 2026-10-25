@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from .base import IniEmulator, EmulatorAdapter, KnownSetting as K, documents_dir, env_path
+from . import streaming_guides as SG
 from .discs import normalize_ps_serial, read_gc_wii_id, read_ps_serial
 
 
@@ -181,7 +182,7 @@ class PCSX2(IniEmulator):
         K("Pad1", "Type", "Controller type: DualShock2"),
         K("Pad1", "Cross", "Binding, e.g. SDL-0/FaceSouth (Circle FaceEast, Square FaceWest, Triangle FaceNorth)" + _V),
     )
-    GUIDES = {"controllers": PCSX2_CONTROLLERS, "upscaling": PCSX2_UPSCALING, "per_game": PCSX2_PER_GAME}
+    GUIDES = {"controllers": PCSX2_CONTROLLERS, "upscaling": PCSX2_UPSCALING, "per_game": PCSX2_PER_GAME, "streaming": SG.PCSX2}
     notes = "Portable if portable.ini or portable.txt sits next to the exe. Per-game: gamesettings/<SERIAL>_<CRC>.ini."
 
     def data_dir(self) -> Path:
@@ -198,6 +199,11 @@ class PCSX2(IniEmulator):
 
     def extra_watch_files(self) -> list[Path]:
         return sorted((self.data_dir() / "inputprofiles").glob("*.ini"))
+
+    def controller_scope(self):
+        cfg = self.config_path() if self._game_file is None else None
+        pads = re.compile(r"Pad\d+|InputSources|Hotkeys")
+        return [(cfg, lambda section, key: bool(pads.fullmatch(section)))] if cfg else []
 
     def normalize_game_id(self, game_id: str) -> str:
         serial = normalize_ps_serial(game_id)
@@ -251,7 +257,7 @@ class DuckStation(IniEmulator):
         K("Pad1", "Type", "AnalogController (DualShock), DigitalController, ..."),
         K("Pad1", "Cross", "Binding, e.g. SDL-0/A" + _V),
     )
-    GUIDES = {"controllers": DUCK_CONTROLLERS, "upscaling": DUCK_UPSCALING, "per_game": DUCK_PER_GAME}
+    GUIDES = {"controllers": DUCK_CONTROLLERS, "upscaling": DUCK_UPSCALING, "per_game": DUCK_PER_GAME, "streaming": SG.DUCKSTATION}
     notes = "Portable if portable.txt sits next to the exe. Per-game: gamesettings/<SERIAL>.ini."
 
     def config_candidates(self) -> list[Path]:
@@ -266,6 +272,11 @@ class DuckStation(IniEmulator):
 
     def extra_watch_files(self) -> list[Path]:
         return sorted((self.data_dir() / "inputprofiles").glob("*.ini"))
+
+    def controller_scope(self):
+        cfg = self.config_path() if self._game_file is None else None
+        pads = re.compile(r"Pad\d+|InputSources|Hotkeys")
+        return [(cfg, lambda section, key: bool(pads.fullmatch(section)))] if cfg else []
 
     def normalize_game_id(self, game_id: str) -> str:
         serial = normalize_ps_serial(game_id)
@@ -313,7 +324,7 @@ class Dolphin(IniEmulator):
         K("GCPadNew.ini::GCPad1", "Device", "e.g. SDL/0/DualSense Wireless Controller"),
         K("WiimoteNew.ini::Wiimote1", "Source", "0 None, 1 Emulated, 2 Real Wii Remote" + _V),
     )
-    GUIDES = {"controllers": DOLPHIN_CONTROLLERS, "upscaling": DOLPHIN_UPSCALING, "per_game": DOLPHIN_PER_GAME}
+    GUIDES = {"controllers": DOLPHIN_CONTROLLERS, "upscaling": DOLPHIN_UPSCALING, "per_game": DOLPHIN_PER_GAME, "streaming": SG.DOLPHIN}
     notes = "Global sections are 'File.ini::Section'. Per-game: GameSettings/<GameID>.ini with plain sections."
 
     def config_dir(self) -> Path:
@@ -366,6 +377,12 @@ class Dolphin(IniEmulator):
         profiles = self.config_dir() / "Profiles"
         return sorted(profiles.glob("GCPad/*.ini")) + sorted(profiles.glob("Wiimote/*.ini"))
 
+    def controller_scope(self):
+        cfg = self.config_dir()
+        si = re.compile(r"SIDevice\d|WiimoteContinuousScanning|BackgroundInput")
+        return [(cfg / "GCPadNew.ini", None), (cfg / "WiimoteNew.ini", None), (cfg / "Hotkeys.ini", None),
+                (cfg / "Dolphin.ini", lambda section, key: section in ("Core", "Input") and bool(si.fullmatch(key)))]
+
     def _expand(self, section: str, key: str, value: str) -> list[tuple[str, str, str]]:
         return [(self._split(section)[1], key, value)]  # the file is chosen by target_file()
 
@@ -407,7 +424,7 @@ class RPCS3(EmulatorAdapter):
         K("Video", "VSync", "true/false"),
         K("Miscellaneous", "Start games in fullscreen mode", "true/false"),
     )
-    GUIDES = {"controllers": RPCS3_CONTROLLERS, "upscaling": RPCS3_UPSCALING, "per_game": RPCS3_PER_GAME}
+    GUIDES = {"controllers": RPCS3_CONTROLLERS, "upscaling": RPCS3_UPSCALING, "per_game": RPCS3_PER_GAME, "streaming": SG.RPCS3}
     notes = ("Per-game: config/custom_configs/config_<SERIAL>.yml (create it in RPCS3 first). Pads live in "
              "config/input_configs (searched too). Games are installed via the GUI.")
 
@@ -426,6 +443,13 @@ class RPCS3(EmulatorAdapter):
         if not root:
             return []
         return sorted((root / "config" / "input_configs").rglob("*.yml")) + sorted((root / "input_configs").rglob("*.yml"))
+
+    def controller_scope(self):
+        root = self.root()
+        if not root:
+            return []
+        files = sorted((root / "config" / "input_configs").rglob("*.yml")) + sorted((root / "input_configs").rglob("*.yml"))
+        return [(f, None) for f in files]
 
     def normalize_game_id(self, game_id: str) -> str:
         gid = game_id.strip().upper().replace("-", "").replace("_", "")
@@ -573,7 +597,7 @@ class Eden(IniEmulator):
         K("UI", "fullscreen", "Start fullscreen: true/false"),
     )
     GUIDES = {"controllers": EDEN_CONTROLLERS_GUIDE, "upscaling": EDEN_UPSCALING_GUIDE,
-              "per_game": EDEN_PER_GAME_GUIDE}
+              "per_game": EDEN_PER_GAME_GUIDE, "streaming": SG.EDEN}
     notes = ("Config: qt-config.ini in user/config (portable, next to eden.exe) or %APPDATA%\\eden\\config. "
              "String values that contain commas/colons (bindings) are written in double quotes. Enum values can "
              "differ between builds: learn them with snapshot_config -> GUI change -> diff_config -> remember_setting. "
@@ -595,6 +619,10 @@ class Eden(IniEmulator):
     def extra_watch_files(self) -> list[Path]:
         cfg = self.config_dir()
         return sorted((cfg / "input").glob("*.ini")) if cfg else []  # saved controller profiles
+
+    def controller_scope(self):
+        cfg = self.config_path() if self._game_file is None else None
+        return [(cfg, lambda section, key: section == "Controls")] if cfg else []
 
     # ---- per-game -------------------------------------------------------------
     def normalize_game_id(self, game_id: str) -> str:

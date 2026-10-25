@@ -108,6 +108,25 @@ NATIVE_TOOLS: list[dict[str, Any]] = [
            "window_title_contains": {"type": "string", "description": "Pick e.g. the 'Settings' window; '' = main window"}}),
 ]
 
+STREAM_TOOLS: list[dict[str, Any]] = [
+    _tool("detect_controllers",
+          "List the game controllers connected right now (VID:PID + description). Over Moonlight these are "
+          "Vibepollo's virtual pads, whose type follows the client pad (Auto mode).", {}),
+    _tool("save_controller_set",
+          "Save the emulator's CURRENT controller mapping as a named set tied to the pads connected now, so "
+          "the stream-start sync can switch to it automatically. Map the pad in the emulator first.",
+          {"emulator": _EMU, "name": {"type": "string", "description": "e.g. 'DualSense' or '8BitDo'"}}),
+    _tool("list_controller_sets", "Saved controller sets per emulator, their pads, and which is active.", {}),
+    _tool("apply_controller_set", "Switch an emulator to a saved controller set now (emulator must be closed).",
+          {"emulator": _EMU, "name": {"type": "string"}}),
+    _tool("sync_controllers",
+          "Do now what happens at every stream start: switch every emulator to the set matching the "
+          "connected pads.", {}),
+    _tool("install_stream_sync",
+          "Add Retrozashi's controller sync to Vibepollo as a global prep command (runs at each stream start). "
+          "Edits Vibepollo's config with a backup; Windows asks the user for admin permission if needed.", {}),
+]
+
 UIA_TOOLS: list[dict[str, Any]] = [
     _tool("ui_list_controls",
           "List the buttons, check boxes, combo boxes, text fields, tabs and menu items in a running emulator's "
@@ -131,13 +150,16 @@ UIA_TOOLS: list[dict[str, Any]] = [
 class NativeTools:
     def __init__(self, registry: EmulatorRegistry, uia: UiaController | None = None,
                  screen: ScreenCapture | None = None, window_api=None, profiles=None,
-                 learned=None, confirm=None) -> None:
+                 learned=None, confirm=None, controller_sets=None, detect_pads=None, elevate=None) -> None:
         self.registry = registry
         self.profiles = profiles  # ProfileManager
         self.learned = learned  # LearnedSettings
         # Asks the user a yes/no question (the UI shows a dialog); None = no UI, allow.
         self.confirm = confirm
         self._snapshots: dict[tuple[str, str], Any] = {}
+        self.controller_sets = controller_sets  # ControllerSets
+        self._detect_pads = detect_pads  # () -> ["054C:05C4", ...]; desktop.pads by default
+        self._elevate = elevate  # (exe, params) -> exit code; win32.run_elevated by default
         self.uia = uia
         self.screen = screen
         self._window_api = window_api  # (list_windows, focus_window); win32 by default
@@ -235,7 +257,40 @@ class NativeTools:
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
-        return NATIVE_TOOLS + (UIA_TOOLS if self.uia else [])
+        return NATIVE_TOOLS + (STREAM_TOOLS if self.controller_sets else []) + (UIA_TOOLS if self.uia else [])
+
+    def _pads(self) -> list[str]:
+        if self._detect_pads:
+            return self._detect_pads()
+        from ..desktop.pads import connected_pads
+        return connected_pads()
+
+    def _install_stream_sync(self) -> Any:
+        import subprocess
+        import sys
+        from ..streaming import find_host_config, install_prep_command, sync_command
+
+        conf = find_host_config()
+        if conf is None:
+            raise FileNotFoundError("Vibepollo's config (config/sunshine.conf in its install folder) wasn't found. "
+                                    "Ask the user where Vibepollo is installed.")
+        command = sync_command()
+        try:
+            return install_prep_command(conf, command)
+        except PermissionError:
+            pass  # Program Files needs admin: do just this one edit in an elevated helper
+        exe = sys.executable
+        args = ([] if getattr(sys, "frozen", False) else ["-m", "retrozashi"]) + \
+            ["--install-stream-sync", str(conf), command]
+        if self._elevate:
+            code = self._elevate(exe, subprocess.list2cmdline(args))
+        else:
+            from ..desktop.win32 import run_elevated
+            code = run_elevated(exe, subprocess.list2cmdline(args))
+        if code != 0:
+            raise OSError(f"The elevated helper couldn't update {conf} (exit code {code}).")
+        return {"config": str(conf), "command": command, "elevated": True,
+                "next": "Restart Vibepollo (tray icon or Web UI -> Troubleshooting -> Restart) to load it."}
 
     def run(self, name: str, inp: dict[str, Any]) -> tuple[str, bool]:
         """Returns (result text, is_error)."""
@@ -310,6 +365,24 @@ class NativeTools:
                 if self.profiles is None:
                     raise ValueError("Profiles are not available")
                 out = self.profiles.launch(inp["name"])
+            elif name in ("detect_controllers", "save_controller_set", "list_controller_sets",
+                          "apply_controller_set", "sync_controllers", "install_stream_sync"):
+                if self.controller_sets is None:
+                    raise ValueError("Controller sets are not available")
+                if name == "detect_controllers":
+                    from ..desktop.pads import describe
+                    out = [{"pad": p, "looks_like": describe(p)} for p in self._pads()] or \
+                        "No controllers connected. Over Moonlight, start a session with the pad first."
+                elif name == "save_controller_set":
+                    out = self.controller_sets.save(inp["emulator"], inp["name"], self._pads())
+                elif name == "list_controller_sets":
+                    out = self.controller_sets.list() or "No controller sets saved yet."
+                elif name == "apply_controller_set":
+                    out = self.controller_sets.apply(inp["emulator"], inp["name"])
+                elif name == "sync_controllers":
+                    out = {"pads": self._pads(), "results": self.controller_sets.sync(self._pads())}
+                else:
+                    out = self._install_stream_sync()
             elif name == "focus_emulator_window":
                 out = self._focus(inp["emulator"], inp.get("window_title_contains", ""))
             elif name == "ui_list_controls" and self.uia:
